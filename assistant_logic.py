@@ -10,7 +10,7 @@ load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=api_key)
 
-ASSISTANT_ID = "asst_xxx"  # Remplace par ton ID assistant
+ASSISTANT_ID = "asst_4qIjf00E1XIYVvKV9GKAUzJp"  # Remplace par ton ID assistant
 
 def handle_tool_call(tool_call):
     name = tool_call.function.name
