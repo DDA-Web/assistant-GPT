@@ -1,49 +1,71 @@
 from flask import Flask, request, jsonify
-import os
-
-briefs = {}
+from assistant_logic import run_brief_generation
+import json
 
 app = Flask(__name__)
 
-@app.route('/nouveauBrief', methods=['POST'])
+# Endpoint pour recevoir un mot-clé
+@app.route("/nouveauBrief", methods=["POST"])
 def nouveau_brief():
     data = request.json
-    keyword = data.get('keyword')
-    if keyword:
-        briefs[keyword] = None
-        return jsonify({"status": "success", "message": f"Mot-clé '{keyword}' reçu."}), 200
-    return jsonify({"status": "error", "message": "Aucun mot-clé reçu."}), 400
+    keyword = data.get("keyword")
 
-@app.route('/recupererBrief', methods=['GET'])
+    if not keyword:
+        return jsonify({"error": "Mot-clé manquant"}), 400
+
+    with open("briefs.json", "r") as f:
+        briefs = json.load(f)
+
+    briefs.append({
+        "keyword": keyword,
+        "status": "waiting",
+        "brief": ""
+    })
+
+    with open("briefs.json", "w") as f:
+        json.dump(briefs, f)
+
+    return jsonify({"message": f"Mot-clé '{keyword}' enregistré."}), 200
+
+# Endpoint pour récupérer le dernier brief terminé
+@app.route("/recupererBrief", methods=["GET"])
 def recuperer_brief():
-    pending = [k for k, v in briefs.items() if v is None]
-    if pending:
-        last_keyword = pending[-1]
-        return jsonify({"keyword": last_keyword}), 200
-    return jsonify({"message": "Aucun mot-clé en attente."}), 200
+    with open("briefs.json", "r") as f:
+        briefs = json.load(f)
 
-@app.route('/enregistrerBrief', methods=['POST'])
+    done_briefs = [b for b in briefs if b["status"] == "done"]
+    if not done_briefs:
+        return jsonify({"message": "Aucun brief disponible."}), 404
+
+    last_done = done_briefs[-1]
+    return jsonify({"keyword": last_done["keyword"], "brief": last_done["brief"]})
+
+# Endpoint pour que l'assistant sauvegarde le brief
+@app.route("/enregistrerBrief", methods=["POST"])
 def enregistrer_brief():
     data = request.json
-    keyword = data.get('keyword')
-    brief = data.get('brief')
-    if keyword and brief:
-        if keyword in briefs:
-            briefs[keyword] = brief
-            return jsonify({"status": "success", "message": "Brief enregistré."}), 200
-        else:
-            return jsonify({"status": "error", "message": "Mot-clé introuvable."}), 404
-    return jsonify({"status": "error", "message": "Mot-clé ou brief manquant."}), 400
+    keyword = data.get("keyword")
+    brief = data.get("brief")
 
-@app.route('/reset', methods=['GET'])
-def reset():
-    briefs.clear()
-    return jsonify({"status": "reset", "message": "Mémoire vidée."}), 200
+    with open("briefs.json", "r") as f:
+        briefs = json.load(f)
 
-@app.route('/')
-def home():
-    return "✅ API GPT Bridge active", 200
+    for b in briefs:
+        if b["keyword"] == keyword:
+            b["brief"] = brief
+            b["status"] = "done"
+            break
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(debug=False, host='0.0.0.0', port=port)
+    with open("briefs.json", "w") as f:
+        json.dump(briefs, f)
+
+    return jsonify({"message": f"Brief pour '{keyword}' enregistré."}), 200
+
+# Nouveau endpoint pour déclencher le run de l'assistant
+@app.route("/generateBrief", methods=["POST"])
+def generate_brief():
+    run_brief_generation()
+    return jsonify({"message": "Assistant GPT lancé."}), 200
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8000)
