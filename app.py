@@ -1,11 +1,18 @@
-from flask import Flask, request, jsonify
-import time
 import os
+import time
+import json
 import requests
+import openai
+from flask import Flask, request, jsonify
 from dotenv import load_dotenv
+from urllib.parse import urlparse
 
 # Charger les variables d'environnement
 load_dotenv()
+
+# Configuration OpenAI
+openai.api_key = os.getenv("OPENAI_API_KEY")
+ASSISTANT_ID = "asst_4qIjf00E1XIYVvKV9GKAUzJp"  # ID de votre Assistant GPT
 
 app = Flask(__name__)
 
@@ -22,6 +29,7 @@ def index():
             "/recupererBrief",
             "/enregistrerBrief",
             "/getSERPResults",
+            "/process",
             "/statut"
         ]
     }), 200
@@ -51,22 +59,10 @@ def nouveau_brief():
 @app.route('/recupererBrief', methods=['GET'])
 def recuperer_brief():
     """
-    Endpoint appelé par l'Assistant GPT pour récupérer le mot-clé à traiter.
-    Ou appelé par Make pour récupérer un brief complété.
+    Endpoint pour récupérer un brief.
     """
     brief_id = request.args.get('brief_id')
     keyword = request.args.get('keyword')
-
-    # Si l'appel vient de l'Assistant GPT (sans paramètres)
-    if not brief_id and not keyword:
-        if pending_briefs:
-            # Récupérer le premier brief en attente
-            brief_id = next(iter(pending_briefs))
-            return jsonify({
-                "keyword": pending_briefs[brief_id]["keyword"]
-            }), 200
-        else:
-            return jsonify({"status": "No pending briefs"}), 204
 
     # Si l'appel spécifie un brief_id précis
     if brief_id:
@@ -89,10 +85,20 @@ def recuperer_brief():
         else:
             return jsonify({"status": "No completed brief found for this keyword"}), 404
 
+    # Sans paramètres, retourner le premier brief en attente
+    else:
+        if pending_briefs:
+            brief_id = next(iter(pending_briefs))
+            return jsonify({
+                "keyword": pending_briefs[brief_id]["keyword"]
+            }), 200
+        else:
+            return jsonify({"status": "No pending briefs"}), 204
+
 @app.route('/enregistrerBrief', methods=['POST'])
 def enregistrer_brief():
     """
-    Endpoint appelé par l'Assistant GPT pour enregistrer un brief généré.
+    Endpoint pour enregistrer un brief généré.
     """
     data = request.json
     if not data or not data.get('keyword') or not data.get('brief'):
@@ -124,6 +130,43 @@ def enregistrer_brief():
         "brief_id": brief_id
     }), 200
 
+def get_serp_data_for_keyword(keyword):
+    """
+    Fonction interne simplifiée pour récupérer les données SERP pour un mot-clé,
+    en utilisant directement la structure fournie par l'API SERP.
+    """
+    try:
+        SERP_API_URL = os.getenv("SERP_API_URL", "https://serpscrap-production.up.railway.app/scrape")
+        response = requests.get(SERP_API_URL, params={"query": keyword}, timeout=30)
+        response.raise_for_status()
+        
+        serp_data = response.json()
+        
+        # Formater les données pour l'Assistant
+        formatted_data = {
+            "query": keyword,
+            "organic_results": [],
+            "related_searches": [],
+            "related_questions": []
+        }
+        
+        # Extraire les résultats organiques
+        if "results" in serp_data and isinstance(serp_data["results"], list):
+            formatted_data["organic_results"] = serp_data["results"]
+        
+        # Extraire les recherches associées
+        if "associated_searches" in serp_data and isinstance(serp_data["associated_searches"], list):
+            formatted_data["related_searches"] = serp_data["associated_searches"]
+        
+        # Extraire les questions PAA (People Also Ask)
+        if "paa_questions" in serp_data and isinstance(serp_data["paa_questions"], list):
+            formatted_data["related_questions"] = [{"question": q} for q in serp_data["paa_questions"]]
+        
+        return formatted_data
+    except Exception as e:
+        print(f"Error getting SERP data for keyword '{keyword}': {str(e)}")
+        return {"query": keyword, "error": str(e)}
+
 @app.route('/getSERPResults', methods=['GET'])
 def get_serp_results():
     """
@@ -133,62 +176,132 @@ def get_serp_results():
     if not query:
         return jsonify({"error": "Query parameter is required"}), 400
 
-    SERP_API_URL = os.getenv("SERP_API_URL", "https://serpscrap-production.up.railway.app/scrape")
     try:
-        response = requests.get(SERP_API_URL, params={"query": query}, timeout=30)
-        response.raise_for_status()
-        
-        serp_data = response.json()
-        
-        # Formater les données de manière plus structurée pour l'Assistant
-        formatted_data = {
-            "query": query,
-            "organic_results": []
-        }
-        
-        # Extraire les résultats organiques si disponibles
-        if "results" in serp_data:
-            formatted_data["organic_results"] = serp_data["results"]
-        
-        # Extraire les recherches associées
-        if "associated_searches" in serp_data and isinstance(serp_data["associated_searches"], list):
-            formatted_data["related_searches"] = serp_data["associated_searches"]
-        
-        # Si nous avons la clé "position" qui contient des questions PAA
-        paa_questions = []
-        
-        # Parcourir les résultats et chercher des éléments qui ressemblent à des PAA
-        if "results" in serp_data and isinstance(serp_data["results"], list):
-            for result in serp_data["results"]:
-                if "meta_description" in result and result.get("meta_description", "").startswith("Qu'est-ce"):
-                    paa_questions.append({"question": result.get("meta_description")})
-        
-        # Chercher des questions dans les associated_searches
-        if "associated_searches" in serp_data and isinstance(serp_data["associated_searches"], list):
-            for search in serp_data["associated_searches"]:
-                if search.startswith("Pourquoi") or search.startswith("Comment") or search.startswith("Qu'est-ce"):
-                    paa_questions.append({"question": search})
-        
-        if paa_questions:
-            formatted_data["related_questions"] = paa_questions
-        
-        # Ajouter d'autres informations utiles pour le brief
-        if "page_title" in serp_data:
-            formatted_data["top_title"] = serp_data.get("page_title")
-        
-        # Extraire d'autres informations utiles pour enrichir le brief
-        if "structured_data" in serp_data:
-            formatted_data["structured_data"] = serp_data.get("structured_data")
-        
-        print(f"Formatted SERP data for query '{query}': {formatted_data}")
+        # Utiliser la fonction simplifiée
+        formatted_data = get_serp_data_for_keyword(query)
+        print(f"SERP data for query '{query}': {formatted_data}")
         
         return jsonify(formatted_data), 200
-    except requests.RequestException as e:
-        print(f"Error fetching SERP data: {str(e)}")
-        return jsonify({"error": f"Failed to scrape SERP: {str(e)}"}), 500
     except Exception as e:
         print(f"Unexpected error in getSERPResults: {str(e)}")
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+
+def generate_brief_with_assistant(keyword, serp_data):
+    """
+    Génère un brief SEO en utilisant l'assistant OpenAI existant.
+    """
+    try:
+        # 1. Créer une conversation (thread)
+        thread = openai.Thread.create()
+        thread_id = thread.id
+        
+        # 2. Préparer un message avec les instructions et les données SERP
+        message_content = f"Génère un brief SEO pour le mot-clé '{keyword}' en suivant le canevas fourni. Voici les données SERP:"
+        
+        # Ajouter les résultats organiques
+        if "organic_results" in serp_data and serp_data["organic_results"]:
+            message_content += "\n\n## Top résultats Google:"
+            for i, result in enumerate(serp_data["organic_results"][:10]):
+                title = result.get("page_title", "")
+                url = result.get("url", "")
+                description = result.get("meta_description", "")
+                message_content += f"\n{i+1}. {title}\n   URL: {url}\n   Description: {description}"
+        
+        # Ajouter les recherches associées
+        if "related_searches" in serp_data and serp_data["related_searches"]:
+            message_content += "\n\n## Recherches associées:"
+            for search in serp_data["related_searches"]:
+                message_content += f"\n- {search}"
+        
+        # Ajouter les questions fréquentes
+        if "related_questions" in serp_data and serp_data["related_questions"]:
+            message_content += "\n\n## Questions fréquentes:"
+            for question in serp_data["related_questions"]:
+                message_content += f"\n- {question.get('question', '')}"
+        
+        # 3. Ajouter le message au thread
+        openai.Message.create(
+            thread_id=thread_id,
+            role="user",
+            content=message_content
+        )
+        
+        # 4. Exécuter l'assistant sur le thread
+        run = openai.Run.create(
+            thread_id=thread_id,
+            assistant_id=ASSISTANT_ID
+        )
+        
+        # 5. Attendre que l'assistant termine son travail
+        while run.status in ["queued", "in_progress"]:
+            run = openai.Run.retrieve(thread_id=thread_id, run_id=run.id)
+            time.sleep(1)
+        
+        if run.status != "completed":
+            raise Exception(f"Assistant run failed with status: {run.status}")
+        
+        # 6. Récupérer la réponse de l'assistant
+        messages = openai.Message.list(thread_id=thread_id)
+        
+        # Récupérer la dernière réponse de l'assistant
+        for message in messages.data:
+            if message.role == "assistant":
+                brief_content = message.content[0].text.value
+                return brief_content
+        
+        raise Exception("No assistant response found")
+        
+    except Exception as e:
+        print(f"Error generating brief with assistant: {str(e)}")
+        raise e
+
+@app.route('/process', methods=['GET'])
+def process_queue():
+    """
+    Traite la file d'attente des briefs en appelant l'Assistant GPT.
+    """
+    brief_id = request.args.get('brief_id')
+    
+    # Si un brief_id spécifique est fourni, traiter ce brief
+    if brief_id and brief_id in pending_briefs:
+        keyword = pending_briefs[brief_id]["keyword"]
+    # Sinon, prendre le premier brief en attente
+    elif pending_briefs:
+        brief_id = next(iter(pending_briefs))
+        keyword = pending_briefs[brief_id]["keyword"]
+    else:
+        return jsonify({"status": "No pending briefs to process"}), 200
+    
+    try:
+        # 1. Obtenir les données SERP
+        print(f"Getting SERP data for keyword: {keyword}")
+        serp_data = get_serp_data_for_keyword(keyword)
+        
+        # 2. Appeler l'Assistant GPT avec ces données
+        print(f"Generating brief with Assistant for keyword: {keyword}")
+        brief_content = generate_brief_with_assistant(keyword, serp_data)
+        
+        # 3. Enregistrer le brief généré
+        print(f"Saving brief for keyword: {keyword}")
+        completed_briefs[brief_id] = {
+            "keyword": keyword,
+            "brief": brief_content,
+            "status": "completed",
+            "completed_at": time.time()
+        }
+        del pending_briefs[brief_id]
+        
+        return jsonify({
+            "status": "Brief processed successfully",
+            "brief_id": brief_id,
+            "brief": brief_content
+        }), 200
+    except Exception as e:
+        print(f"Error processing brief: {str(e)}")
+        return jsonify({
+            "error": f"Failed to process brief: {str(e)}",
+            "brief_id": brief_id
+        }), 500
 
 @app.route('/statut', methods=['GET'])
 def statut():
@@ -198,7 +311,9 @@ def statut():
     return jsonify({
         "status": "online",
         "pending_briefs": len(pending_briefs),
-        "completed_briefs": len(completed_briefs)
+        "completed_briefs": len(completed_briefs),
+        "pending_list": [{"brief_id": k, "keyword": v["keyword"]} for k, v in pending_briefs.items()],
+        "completed_list": [{"brief_id": k, "keyword": v["keyword"]} for k, v in completed_briefs.items()]
     }), 200
 
 if __name__ == '__main__':
