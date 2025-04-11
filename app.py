@@ -188,7 +188,7 @@ def get_serp_results():
 def generate_brief_with_assistant(keyword, serp_data):
     """
     Génère un brief SEO en utilisant l'assistant OpenAI existant.
-    Compatible avec openai v1.x.
+    Compatible avec openai v1.x et gère les états requires_action.
     """
     try:
         # Importer OpenAI ici pour éviter les problèmes de configuration globale
@@ -243,16 +243,84 @@ def generate_brief_with_assistant(keyword, serp_data):
         run_status = run.status
         run_id = run.id
         
-        while run_status in ["queued", "in_progress"]:
-            time.sleep(2)  # Attendre un peu plus longtemps pour éviter trop de requêtes
+        max_attempts = 10
+        attempt = 0
+        
+        while attempt < max_attempts:
+            attempt += 1
+            time.sleep(3)  # Attendre pour éviter trop de requêtes
+            
             run = client.beta.threads.runs.retrieve(
                 thread_id=thread_id,
                 run_id=run_id
             )
             run_status = run.status
-        
-        if run_status != "completed":
-            raise Exception(f"Assistant run failed with status: {run_status}")
+            print(f"Run status: {run_status}")
+            
+            if run_status == "completed":
+                break
+            elif run_status == "requires_action":
+                # Gérer l'action requise - approuver automatiquement les fonctions
+                try:
+                    required_actions = run.required_action
+                    if required_actions and required_actions.type == "submit_tool_outputs":
+                        tool_calls = required_actions.submit_tool_outputs.tool_calls
+                        tool_outputs = []
+                        
+                        print(f"Assistant requires action with {len(tool_calls)} tool calls")
+                        
+                        for tool_call in tool_calls:
+                            tool_call_id = tool_call.id
+                            function_name = tool_call.function.name
+                            function_args = json.loads(tool_call.function.arguments)
+                            
+                            print(f"Tool call: {function_name} with args: {function_args}")
+                            
+                            # Traiter l'appel de fonction et obtenir un résultat
+                            result = {}
+                            
+                            if function_name == "getSERPResults":
+                                query = function_args.get("query", keyword)
+                                serp_result = get_serp_data_for_keyword(query)
+                                result = serp_result
+                            elif function_name == "recupererBrief":
+                                # Retourner un résultat vide, car l'assistant a déjà les données nécessaires
+                                result = {"keyword": keyword}
+                            elif function_name == "enregistrerBrief":
+                                # Ne rien faire ici, car l'enregistrement se fera après la génération complète
+                                result = {"status": "success"}
+                            
+                            # Convertir le résultat en JSON
+                            output = json.dumps(result)
+                            
+                            tool_outputs.append({
+                                "tool_call_id": tool_call_id,
+                                "output": output
+                            })
+                        
+                        # Soumettre les réponses aux appels de fonction
+                        client.beta.threads.runs.submit_tool_outputs(
+                            thread_id=thread_id,
+                            run_id=run_id,
+                            tool_outputs=tool_outputs
+                        )
+                        
+                        print(f"Submitted {len(tool_outputs)} tool outputs")
+                        
+                    else:
+                        print("Required action of unknown type")
+                        raise Exception(f"Unknown required action type: {required_actions.type}")
+                except Exception as e:
+                    print(f"Error handling requires_action: {str(e)}")
+                    raise e
+            elif run_status in ["failed", "cancelled", "expired"]:
+                raise Exception(f"Assistant run failed with status: {run_status}")
+            
+            if run_status not in ["completed", "requires_action", "in_progress", "queued"]:
+                raise Exception(f"Unexpected status: {run_status}")
+            
+            if attempt >= max_attempts:
+                raise Exception(f"Reached maximum attempts. Last status: {run_status}")
         
         # 6. Récupérer la réponse de l'assistant
         messages = client.beta.threads.messages.list(
