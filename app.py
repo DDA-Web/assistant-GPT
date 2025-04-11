@@ -8,6 +8,9 @@ from dotenv import load_dotenv
 # Charger les variables d'environnement
 load_dotenv()
 
+# Configuration OpenAI (pour la version 0.28.0)
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
 app = Flask(__name__)
 
 # Files d'attente pour les briefs
@@ -126,26 +129,22 @@ def statut():
 def generate_brief(keyword):
     """
     Génère un brief SEO complet et détaillé pour le mot-clé donné,
-    en utilisant l'API OpenAI.
+    en utilisant l'API OpenAI version 0.28.0.
     """
     try:
         prompt = f"Génère un brief SEO complet et détaillé pour le mot-clé '{keyword}'."
         
-        # Utiliser simplement la clé API directement, sans configurations supplémentaires
-        api_key = os.getenv("OPENAI_API_KEY")
-        
-        # Créer une nouvelle instance pour chaque appel
-        client = openai.OpenAI(api_key=api_key)
-        
-        response = client.chat.completions.create(
-            model="gpt-4o",
+        # Utiliser l'ancienne syntaxe compatible avec openai==0.28.0
+        response = openai.ChatCompletion.create(
+            model="gpt-4",  # gpt-4o n'est pas disponible dans cette version
             messages=[
                 {"role": "system", "content": "Tu es un expert en SEO."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7
         )
-        brief_content = response.choices[0].message.content
+        
+        brief_content = response.choices[0].message["content"]  # Utiliser ["content"] avec l'ancienne version
         return brief_content
     except Exception as e:
         print(f"Error generating brief: {str(e)}")

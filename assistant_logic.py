@@ -8,26 +8,22 @@ from dotenv import load_dotenv
 # Charger les variables d'environnement
 load_dotenv()
 
-# L'API key sera utilisée directement dans la fonction generate_brief
+# Configuration OpenAI (pour la version 0.28.0)
+openai.api_key = os.getenv("OPENAI_API_KEY")
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 SERP_API_URL = os.getenv("SERP_API_URL", "https://serpscrap-production.up.railway.app/scrape")
 
 def generate_brief(keyword):
     """
     Génère un brief SEO complet pour le mot-clé donné.
+    Compatible avec la version 0.28.0 de l'API OpenAI.
     """
     try:
         prompt = f"Génère un brief SEO complet et détaillé pour le mot-clé '{keyword}'."
         
-        # Récupérer la clé API directement à partir des variables d'environnement
-        api_key = os.getenv("OPENAI_API_KEY")
-        
-        # Créer une nouvelle instance du client pour chaque appel
-        client = openai.OpenAI(api_key=api_key)
-        
-        # Appeler l'API avec une configuration minimale
-        response = client.chat.completions.create(
-            model="gpt-4o",
+        # Utiliser l'ancienne syntaxe compatible avec openai==0.28.0
+        response = openai.ChatCompletion.create(
+            model="gpt-4",  # gpt-4o n'est pas disponible dans cette version
             messages=[
                 {"role": "system", "content": "Tu es un expert en SEO."},
                 {"role": "user", "content": prompt}
@@ -35,8 +31,8 @@ def generate_brief(keyword):
             temperature=0.7
         )
         
-        # Extraire le contenu de la réponse
-        brief_content = response.choices[0].message.content
+        # Extraire le contenu de la réponse (syntaxe pour la version 0.28.0)
+        brief_content = response.choices[0].message["content"]
         return brief_content
     except Exception as e:
         print(f"Error in generate_brief: {str(e)}")
