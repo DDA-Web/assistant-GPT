@@ -17,7 +17,8 @@ def generate_brief(keyword):
     Génère un brief SEO complet pour le mot-clé donné.
     """
     prompt = f"Génère un brief SEO complet et détaillé pour le mot-clé '{keyword}'."
-    response = openai.ChatCompletion.create(
+    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    response = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
             {"role": "system", "content": "Tu es un expert en SEO."},
@@ -25,7 +26,7 @@ def generate_brief(keyword):
         ],
         temperature=0.7
     )
-    brief_content = response.choices[0].message["content"]
+    brief_content = response.choices[0].message.content
     return brief_content
 
 def run_brief_generation(keyword, brief_id=None):
