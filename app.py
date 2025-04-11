@@ -2,7 +2,6 @@ import os
 import time
 import json
 import requests
-import openai
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from urllib.parse import urlparse
@@ -11,7 +10,7 @@ from urllib.parse import urlparse
 load_dotenv()
 
 # Configuration OpenAI
-openai.api_key = os.getenv("OPENAI_API_KEY")
+API_KEY = os.getenv("OPENAI_API_KEY")
 ASSISTANT_ID = "asst_4qIjf00E1XIYVvKV9GKAUzJp"  # ID de votre Assistant GPT
 
 app = Flask(__name__)
@@ -189,10 +188,18 @@ def get_serp_results():
 def generate_brief_with_assistant(keyword, serp_data):
     """
     Génère un brief SEO en utilisant l'assistant OpenAI existant.
+    Compatible avec openai v1.x.
     """
     try:
+        # Importer OpenAI ici pour éviter les problèmes de configuration globale
+        import openai
+        from openai import OpenAI
+        
+        # Créer le client sans proxy
+        client = OpenAI(api_key=API_KEY)
+        
         # 1. Créer une conversation (thread)
-        thread = openai.Thread.create()
+        thread = client.beta.threads.create()
         thread_id = thread.id
         
         # 2. Préparer un message avec les instructions et les données SERP
@@ -220,36 +227,54 @@ def generate_brief_with_assistant(keyword, serp_data):
                 message_content += f"\n- {question.get('question', '')}"
         
         # 3. Ajouter le message au thread
-        openai.Message.create(
+        client.beta.threads.messages.create(
             thread_id=thread_id,
             role="user",
             content=message_content
         )
         
         # 4. Exécuter l'assistant sur le thread
-        run = openai.Run.create(
+        run = client.beta.threads.runs.create(
             thread_id=thread_id,
             assistant_id=ASSISTANT_ID
         )
         
         # 5. Attendre que l'assistant termine son travail
-        while run.status in ["queued", "in_progress"]:
-            run = openai.Run.retrieve(thread_id=thread_id, run_id=run.id)
-            time.sleep(1)
+        run_status = run.status
+        run_id = run.id
         
-        if run.status != "completed":
-            raise Exception(f"Assistant run failed with status: {run.status}")
+        while run_status in ["queued", "in_progress"]:
+            time.sleep(2)  # Attendre un peu plus longtemps pour éviter trop de requêtes
+            run = client.beta.threads.runs.retrieve(
+                thread_id=thread_id,
+                run_id=run_id
+            )
+            run_status = run.status
+        
+        if run_status != "completed":
+            raise Exception(f"Assistant run failed with status: {run_status}")
         
         # 6. Récupérer la réponse de l'assistant
-        messages = openai.Message.list(thread_id=thread_id)
+        messages = client.beta.threads.messages.list(
+            thread_id=thread_id
+        )
         
         # Récupérer la dernière réponse de l'assistant
+        brief_content = None
+        
         for message in messages.data:
             if message.role == "assistant":
-                brief_content = message.content[0].text.value
-                return brief_content
+                for content_part in message.content:
+                    if content_part.type == "text":
+                        brief_content = content_part.text.value
+                        break
+                if brief_content:
+                    break
         
-        raise Exception("No assistant response found")
+        if not brief_content:
+            raise Exception("No assistant response found")
+            
+        return brief_content
         
     except Exception as e:
         print(f"Error generating brief with assistant: {str(e)}")
