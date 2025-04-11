@@ -8,8 +8,7 @@ from dotenv import load_dotenv
 # Charger les variables d'environnement
 load_dotenv()
 
-# Configurer l'API key dans l'environnement pour que OpenAI la récupère automatiquement
-os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
+# L'API key sera utilisée directement dans la fonction generate_brief
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 SERP_API_URL = os.getenv("SERP_API_URL", "https://serpscrap-production.up.railway.app/scrape")
 
@@ -17,21 +16,31 @@ def generate_brief(keyword):
     """
     Génère un brief SEO complet pour le mot-clé donné.
     """
-    prompt = f"Génère un brief SEO complet et détaillé pour le mot-clé '{keyword}'."
-    
-    # Créer un client OpenAI sans spécifier de paramètres supplémentaires
-    client = openai.OpenAI()
-    
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": "Tu es un expert en SEO."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.7
-    )
-    brief_content = response.choices[0].message.content
-    return brief_content
+    try:
+        prompt = f"Génère un brief SEO complet et détaillé pour le mot-clé '{keyword}'."
+        
+        # Récupérer la clé API directement à partir des variables d'environnement
+        api_key = os.getenv("OPENAI_API_KEY")
+        
+        # Créer une nouvelle instance du client pour chaque appel
+        client = openai.OpenAI(api_key=api_key)
+        
+        # Appeler l'API avec une configuration minimale
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "Tu es un expert en SEO."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7
+        )
+        
+        # Extraire le contenu de la réponse
+        brief_content = response.choices[0].message.content
+        return brief_content
+    except Exception as e:
+        print(f"Error in generate_brief: {str(e)}")
+        raise e
 
 def run_brief_generation(keyword, brief_id=None):
     """
@@ -49,6 +58,7 @@ def run_brief_generation(keyword, brief_id=None):
             requests.post(f"{API_BASE_URL}/enregistrerBrief", json=payload)
         return brief_content
     except Exception as e:
+        print(f"Error in run_brief_generation: {str(e)}")
         return f"Erreur pendant la génération du brief: {str(e)}"
 
 def process_brief(brief_id, keyword):
@@ -59,4 +69,5 @@ def process_brief(brief_id, keyword):
         brief_content = run_brief_generation(keyword, brief_id)
         return {"status": "success", "brief_id": brief_id, "brief": brief_content}
     except Exception as e:
+        print(f"Error in process_brief: {str(e)}")
         return {"status": "error", "brief_id": brief_id, "error": str(e)}

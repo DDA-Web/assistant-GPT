@@ -128,21 +128,28 @@ def generate_brief(keyword):
     Génère un brief SEO complet et détaillé pour le mot-clé donné,
     en utilisant l'API OpenAI.
     """
-    prompt = f"Génère un brief SEO complet et détaillé pour le mot-clé '{keyword}'."
-    
-    # Créer un client OpenAI avec seulement la clé API
-    client = openai.OpenAI()
-    
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": "Tu es un expert en SEO."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.7
-    )
-    brief_content = response.choices[0].message.content
-    return brief_content
+    try:
+        prompt = f"Génère un brief SEO complet et détaillé pour le mot-clé '{keyword}'."
+        
+        # Utiliser simplement la clé API directement, sans configurations supplémentaires
+        api_key = os.getenv("OPENAI_API_KEY")
+        
+        # Créer une nouvelle instance pour chaque appel
+        client = openai.OpenAI(api_key=api_key)
+        
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "Tu es un expert en SEO."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7
+        )
+        brief_content = response.choices[0].message.content
+        return brief_content
+    except Exception as e:
+        print(f"Error generating brief: {str(e)}")
+        raise e
 
 @app.route('/process', methods=['GET'])
 def process_queue():
