@@ -146,21 +146,49 @@ def get_serp_results():
             "organic_results": []
         }
         
-        # Extraire les résultats organiques
-        if "organic_results" in serp_data:
-            formatted_data["organic_results"] = serp_data["organic_results"][:10]  # Top 10
-        
-        # Extraire les questions fréquentes (People Also Ask)
-        if "related_questions" in serp_data:
-            formatted_data["related_questions"] = serp_data["related_questions"]
+        # Extraire les résultats organiques si disponibles
+        if "results" in serp_data:
+            formatted_data["organic_results"] = serp_data["results"]
         
         # Extraire les recherches associées
-        if "related_searches" in serp_data:
-            formatted_data["related_searches"] = serp_data["related_searches"]
+        if "associated_searches" in serp_data and isinstance(serp_data["associated_searches"], list):
+            formatted_data["related_searches"] = serp_data["associated_searches"]
+        
+        # Si nous avons la clé "position" qui contient des questions PAA
+        paa_questions = []
+        
+        # Parcourir les résultats et chercher des éléments qui ressemblent à des PAA
+        if "results" in serp_data and isinstance(serp_data["results"], list):
+            for result in serp_data["results"]:
+                if "meta_description" in result and result.get("meta_description", "").startswith("Qu'est-ce"):
+                    paa_questions.append({"question": result.get("meta_description")})
+        
+        # Chercher des questions dans les associated_searches
+        if "associated_searches" in serp_data and isinstance(serp_data["associated_searches"], list):
+            for search in serp_data["associated_searches"]:
+                if search.startswith("Pourquoi") or search.startswith("Comment") or search.startswith("Qu'est-ce"):
+                    paa_questions.append({"question": search})
+        
+        if paa_questions:
+            formatted_data["related_questions"] = paa_questions
+        
+        # Ajouter d'autres informations utiles pour le brief
+        if "page_title" in serp_data:
+            formatted_data["top_title"] = serp_data.get("page_title")
+        
+        # Extraire d'autres informations utiles pour enrichir le brief
+        if "structured_data" in serp_data:
+            formatted_data["structured_data"] = serp_data.get("structured_data")
+        
+        print(f"Formatted SERP data for query '{query}': {formatted_data}")
         
         return jsonify(formatted_data), 200
     except requests.RequestException as e:
+        print(f"Error fetching SERP data: {str(e)}")
         return jsonify({"error": f"Failed to scrape SERP: {str(e)}"}), 500
+    except Exception as e:
+        print(f"Unexpected error in getSERPResults: {str(e)}")
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 @app.route('/statut', methods=['GET'])
 def statut():
