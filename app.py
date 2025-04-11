@@ -10,9 +10,6 @@ load_dotenv()
 
 app = Flask(__name__)
 
-# Configuration OpenAI
-openai.api_key = os.getenv("OPENAI_API_KEY")
-
 # Files d'attente pour les briefs
 pending_briefs = {}     # Format : {brief_id: {"keyword": keyword, "status": "pending", "created_at": timestamp}}
 completed_briefs = {}   # Format : {brief_id: {"keyword": keyword, "brief": brief, "status": "completed", "completed_at": timestamp}}
@@ -132,9 +129,12 @@ def generate_brief(keyword):
     en utilisant l'API OpenAI.
     """
     prompt = f"Génère un brief SEO complet et détaillé pour le mot-clé '{keyword}'."
-    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    
+    # Créer un client OpenAI avec seulement la clé API
+    client = openai.OpenAI()
+    
     response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
+        model="gpt-4o",
         messages=[
             {"role": "system", "content": "Tu es un expert en SEO."},
             {"role": "user", "content": prompt}

@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 # Charger les variables d'environnement
 load_dotenv()
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Configurer l'API key dans l'environnement pour que OpenAI la récupère automatiquement
+os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 SERP_API_URL = os.getenv("SERP_API_URL", "https://serpscrap-production.up.railway.app/scrape")
 
@@ -17,9 +18,12 @@ def generate_brief(keyword):
     Génère un brief SEO complet pour le mot-clé donné.
     """
     prompt = f"Génère un brief SEO complet et détaillé pour le mot-clé '{keyword}'."
-    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    
+    # Créer un client OpenAI sans spécifier de paramètres supplémentaires
+    client = openai.OpenAI()
+    
     response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
+        model="gpt-4o",
         messages=[
             {"role": "system", "content": "Tu es un expert en SEO."},
             {"role": "user", "content": prompt}
