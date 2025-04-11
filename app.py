@@ -1,17 +1,42 @@
 from flask import Flask, request, jsonify
+import requests
 import os
 import time
+import json
 from dotenv import load_dotenv
-from assistant_logic import process_brief
+import openai
 
 # Charger les variables d'environnement
 load_dotenv()
 
 app = Flask(__name__)
 
+# Configuration OpenAI
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+openai.api_key = OPENAI_API_KEY
+ASSISTANT_ID = os.getenv("ASSISTANT_ID", "asst_4qIjf00E1XIYVvKV9GKAUzJp")
+
+# Endpoints pour l'API externe
+SERP_API_URL = os.getenv("SERP_API_URL", "https://serpscrap-production.up.railway.app/scrape")
+
 # Queue pour stocker les briefs en attente et terminés
 pending_briefs = {}  # {id: {"keyword": keyword, "status": "pending"}}
 completed_briefs = {}  # {id: {"keyword": keyword, "brief": brief_content, "status": "completed"}}
+
+@app.route('/', methods=['GET'])
+def index():
+    """Route racine pour vérifier que l'API est en ligne"""
+    return jsonify({
+        "status": "API en ligne",
+        "endpoints": [
+            "/nouveauBrief",
+            "/recupererBrief",
+            "/enregistrerBrief",
+            "/scrapeSERP",
+            "/statut",
+            "/process"
+        ]
+    }), 200
 
 @app.route('/nouveauBrief', methods=['POST'])
 def nouveau_brief():
@@ -29,6 +54,10 @@ def nouveau_brief():
         "status": "pending",
         "created_at": time.time()
     }
+    
+    # Lancer le processus de génération de brief de manière asynchrone
+    # Dans une implémentation réelle, vous utiliseriez des tâches en arrière-plan
+    # Ici, nous simulons simplement l'enqueue
     
     return jsonify({
         "status": "Brief en cours de traitement",
@@ -104,20 +133,17 @@ def enregistrer_brief():
 
 @app.route('/scrapeSERP', methods=['GET'])
 def scrape_serp():
-    """Endpoint pour rediriger vers l'API de scraping SERP"""
+    """Endpoint pour scraper les résultats SERP pour un mot-clé"""
     query = request.args.get('query')
     if not query:
         return jsonify({"error": "Query parameter is required"}), 400
     
-    # Cette fonction devrait appeler votre API de scraping externe
-    # Pour simplicité, on retourne juste une réponse simulée
-    return jsonify({
-        "query": query,
-        "results": [
-            {"title": "Résultat 1 pour " + query, "url": "https://example.com/1"},
-            {"title": "Résultat 2 pour " + query, "url": "https://example.com/2"}
-        ]
-    }), 200
+    try:
+        response = requests.get(SERP_API_URL, params={'query': query}, timeout=30)
+        response.raise_for_status()
+        return jsonify(response.json()), 200
+    except requests.RequestException as e:
+        return jsonify({"error": f"Failed to scrape SERP: {str(e)}"}), 500
 
 @app.route('/statut', methods=['GET'])
 def statut():
@@ -130,7 +156,7 @@ def statut():
 
 @app.route('/process', methods=['GET'])
 def process_queue():
-    """Endpoint pour traiter la file d'attente des briefs"""
+    """Endpoint pour traiter la file d'attente des briefs (normalement appelé par un cron job)"""
     if not pending_briefs:
         return jsonify({"status": "No pending briefs to process"}), 200
     
@@ -140,27 +166,139 @@ def process_queue():
     keyword = brief_data["keyword"]
     
     try:
-        # Utiliser le module assistant_logic pour traiter le brief
-        result = process_brief(brief_id, keyword)
+        # Créer un thread OpenAI
+        thread = openai.threads.create(assistant_id=ASSISTANT_ID)
+        thread_id = thread.id
         
-        if result["status"] == "success":
-            # Le brief a été correctement traité et enregistré
-            return jsonify({
-                "status": "Brief processed successfully",
-                "brief_id": brief_id
-            }), 200
-        else:
-            # Une erreur s'est produite
-            return jsonify({
-                "error": result["error"],
-                "brief_id": brief_id
-            }), 500
-            
+        # Ajouter le message avec le mot-clé
+        openai.threads.messages.create(
+            thread_id=thread_id,
+            role="user",
+            content=f"Générer un brief SEO pour le mot-clé: {keyword}"
+        )
+        
+        # Lancer le run avec l'assistant
+        run = openai.threads.runs.create(
+            thread_id=thread_id,
+            assistant_id=ASSISTANT_ID,
+            instructions=f"Génère un brief SEO complet pour le mot-clé '{keyword}'."
+        )
+        
+        # Attendre et gérer l'exécution
+        brief_content = handle_assistant_run(thread_id, run.id, keyword)
+        
+        # Enregistrer le brief comme complété
+        completed_briefs[brief_id] = {
+            "keyword": keyword,
+            "brief": brief_content,
+            "status": "completed",
+            "completed_at": time.time()
+        }
+        
+        # Retirer le brief de la liste des pending
+        del pending_briefs[brief_id]
+        
+        return jsonify({
+            "status": "Brief processed successfully",
+            "brief_id": brief_id
+        }), 200
+        
     except Exception as e:
         return jsonify({
             "error": f"Failed to process brief: {str(e)}",
             "brief_id": brief_id
         }), 500
+
+def handle_assistant_run(thread_id, run_id, keyword):
+    """Gérer l'exécution de l'assistant et récupérer le brief généré"""
+    # Boucle d'attente pour les actions de l'assistant
+    max_attempts = 30
+    attempts = 0
+    
+    while attempts < max_attempts:
+        try:
+            run_status = openai.threads.runs.retrieve(thread_id=thread_id, run_id=run_id)
+            
+            if run_status.status == "completed":
+                # Récupérer les messages générés
+                messages = openai.threads.messages.list(thread_id=thread_id)
+                assistant_messages = [msg for msg in messages.data if msg.role == "assistant"]
+                
+                if assistant_messages:
+                    # Prendre le dernier message de l'assistant
+                    last_message = assistant_messages[0]
+                    brief_content = last_message.content[0].text.value
+                    return brief_content
+                else:
+                    return "Aucun brief généré."
+            
+            elif run_status.status == "requires_action":
+                # Gérer les appels d'outils
+                tool_calls = run_status.required_action.submit_tool_outputs.tool_calls
+                outputs = [handle_tool_call(tc, keyword) for tc in tool_calls]
+                
+                openai.threads.runs.submit_tool_outputs(
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    tool_outputs=outputs
+                )
+            
+            elif run_status.status in ["failed", "cancelled", "expired"]:
+                return f"Échec de la génération du brief: {run_status.status}"
+                
+            time.sleep(2)
+            attempts += 1
+            
+        except Exception as e:
+            return f"Erreur pendant la génération du brief: {str(e)}"
+    
+    return "Timeout pendant la génération du brief."
+
+def handle_tool_call(tool_call, keyword):
+    """Gérer les appels d'outils de l'assistant"""
+    function_name = tool_call.function.name
+    arguments = json.loads(tool_call.function.arguments)
+    
+    if function_name == "recupererBrief":
+        # Simuler la récupération d'un brief existant
+        return {
+            "tool_call_id": tool_call.id,
+            "output": json.dumps({"keyword": keyword, "status": "No existing brief found"})
+        }
+    
+    elif function_name == "getSERPResults":
+        # Récupérer les résultats SERP
+        query = arguments.get("query", keyword)
+        try:
+            response = requests.get(SERP_API_URL, params={"query": query}, timeout=30)
+            if response.status_code == 200:
+                return {
+                    "tool_call_id": tool_call.id,
+                    "output": json.dumps(response.json())
+                }
+            else:
+                return {
+                    "tool_call_id": tool_call.id,
+                    "output": json.dumps({"error": "Failed to scrape SERP", "status_code": response.status_code})
+                }
+        except Exception as e:
+            return {
+                "tool_call_id": tool_call.id,
+                "output": json.dumps({"error": f"Exception during SERP scraping: {str(e)}"})
+            }
+    
+    elif function_name == "enregistrerBrief":
+        # Simuler l'enregistrement du brief
+        return {
+            "tool_call_id": tool_call.id,
+            "output": json.dumps({"status": "Brief enregistré avec succès"})
+        }
+    
+    else:
+        return {
+            "tool_call_id": tool_call.id,
+            "output": json.dumps({"error": f"Fonction inconnue: {function_name}"})
+        }
 
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 8000))
