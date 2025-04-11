@@ -1,69 +1,118 @@
 import os
-import time
-import json
 import requests
-import openai
 from dotenv import load_dotenv
 
 # Charger les variables d'environnement
 load_dotenv()
 
-# Configuration OpenAI (pour la version 0.28.0)
-openai.api_key = os.getenv("OPENAI_API_KEY")
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
-SERP_API_URL = os.getenv("SERP_API_URL", "https://serpscrap-production.up.railway.app/scrape")
 
-def generate_brief(keyword):
+def test_recuperer_brief():
     """
-    Génère un brief SEO complet pour le mot-clé donné.
-    Compatible avec la version 0.28.0 de l'API OpenAI.
+    Fonction de test pour simuler l'appel à recupererBrief par l'Assistant GPT.
     """
     try:
-        prompt = f"Génère un brief SEO complet et détaillé pour le mot-clé '{keyword}'."
-        
-        # Utiliser l'ancienne syntaxe compatible avec openai==0.28.0
-        response = openai.ChatCompletion.create(
-            model="gpt-4",  # gpt-4o n'est pas disponible dans cette version
-            messages=[
-                {"role": "system", "content": "Tu es un expert en SEO."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7
-        )
-        
-        # Extraire le contenu de la réponse (syntaxe pour la version 0.28.0)
-        brief_content = response.choices[0].message["content"]
-        return brief_content
+        response = requests.get(f"{API_BASE_URL}/recupererBrief")
+        print("Response from recupererBrief:", response.status_code)
+        if response.status_code == 200:
+            print(response.json())
+        else:
+            print("No pending briefs or error")
+        return response.json() if response.status_code == 200 else None
     except Exception as e:
-        print(f"Error in generate_brief: {str(e)}")
-        raise e
+        print(f"Error calling recupererBrief: {str(e)}")
+        return None
 
-def run_brief_generation(keyword, brief_id=None):
+def test_get_serp_results(query):
     """
-    Exécute le processus complet de génération du brief en utilisant l'API.
-    Si brief_id est fourni, le brief généré est enregistré via l'endpoint /enregistrerBrief.
+    Fonction de test pour simuler l'appel à getSERPResults par l'Assistant GPT.
     """
     try:
-        brief_content = generate_brief(keyword)
-        if brief_id:
-            payload = {
-                "keyword": keyword,
-                "brief": brief_content,
-                "brief_id": brief_id
-            }
-            requests.post(f"{API_BASE_URL}/enregistrerBrief", json=payload)
-        return brief_content
+        response = requests.get(f"{API_BASE_URL}/getSERPResults", params={"query": query})
+        print(f"Response from getSERPResults for query '{query}':", response.status_code)
+        if response.status_code == 200:
+            data = response.json()
+            print(f"Found {len(data.get('organic_results', []))} organic results")
+            print(f"Found {len(data.get('related_questions', []))} related questions")
+            print(f"Found {len(data.get('related_searches', []))} related searches")
+        else:
+            print("Error getting SERP results")
+        return response.json() if response.status_code == 200 else None
     except Exception as e:
-        print(f"Error in run_brief_generation: {str(e)}")
-        return f"Erreur pendant la génération du brief: {str(e)}"
+        print(f"Error calling getSERPResults: {str(e)}")
+        return None
 
-def process_brief(brief_id, keyword):
+def test_enregistrer_brief(keyword, brief_content):
     """
-    Traite un brief spécifique en générant son contenu puis en l'enregistrant.
+    Fonction de test pour simuler l'appel à enregistrerBrief par l'Assistant GPT.
     """
     try:
-        brief_content = run_brief_generation(keyword, brief_id)
-        return {"status": "success", "brief_id": brief_id, "brief": brief_content}
+        payload = {
+            "keyword": keyword,
+            "brief": brief_content
+        }
+        response = requests.post(f"{API_BASE_URL}/enregistrerBrief", json=payload)
+        print(f"Response from enregistrerBrief for keyword '{keyword}':", response.status_code)
+        if response.status_code == 200:
+            print("Brief saved successfully")
+        else:
+            print("Error saving brief")
+        return response.json() if response.status_code == 200 else None
     except Exception as e:
-        print(f"Error in process_brief: {str(e)}")
-        return {"status": "error", "brief_id": brief_id, "error": str(e)}
+        print(f"Error calling enregistrerBrief: {str(e)}")
+        return None
+
+def test_workflow():
+    """
+    Fonction pour tester l'ensemble du workflow.
+    """
+    # 1. Récupérer un brief en attente
+    brief_data = test_recuperer_brief()
+    if not brief_data or "keyword" not in brief_data:
+        print("No pending briefs to process")
+        return
+    
+    keyword = brief_data["keyword"]
+    print(f"Processing brief for keyword: {keyword}")
+    
+    # 2. Récupérer les données SERP
+    serp_data = test_get_serp_results(keyword)
+    if not serp_data:
+        print("Failed to get SERP data")
+        return
+    
+    # 3. Simuler la génération d'un brief (ce que ferait l'Assistant GPT)
+    print("Generating mock brief content...")
+    brief_content = f"""
+# Brief SEO pour le mot-clé "{keyword}"
+
+## Étude sémantique
+- Champ sémantique: Volume moyen, saisonnalité stable
+- Intention de recherche: Informationnelle
+
+## Questions fréquentes
+{chr(10).join([f"- {q.get('question', 'N/A')}" for q in serp_data.get('related_questions', [])[:3]])}
+
+## Recherches associées
+{chr(10).join([f"- {s}" for s in serp_data.get('related_searches', [])[:3]])}
+
+## Type de contenu recommandé
+Article de blog informatif
+
+## Top 10 résultats
+{chr(10).join([f"- {r.get('title', 'N/A')}" for r in serp_data.get('organic_results', [])[:5]])}
+"""
+    
+    # 4. Enregistrer le brief
+    result = test_enregistrer_brief(keyword, brief_content)
+    if result:
+        print("Workflow test completed successfully")
+
+if __name__ == "__main__":
+    # Pour tester l'ajout d'un nouveau brief
+    # new_keyword = "seo tools"
+    # requests.post(f"{API_BASE_URL}/nouveauBrief", json={"keyword": new_keyword})
+    # print(f"Added new brief for keyword: {new_keyword}")
+    
+    # Pour tester le workflow complet
+    test_workflow()
