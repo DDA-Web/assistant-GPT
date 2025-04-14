@@ -171,6 +171,15 @@ def get_serp_data_for_keyword(keyword):
                 images = media_info.get("images", 0)
                 videos = media_info.get("videos", 0)
                 
+                # Vérifier correctement les données structurées
+                structured_data = result.get("structured_data", [])
+                if structured_data and isinstance(structured_data, list) and len(structured_data) > 0:
+                    structured_data_info = ", ".join(structured_data)
+                    has_structured_data = True
+                else:
+                    structured_data_info = "Non disponible"
+                    has_structured_data = False
+                
                 # Créer un résultat amélioré
                 enhanced_result = dict(result)  # Copier toutes les données originales
                 
@@ -182,6 +191,8 @@ def get_serp_data_for_keyword(keyword):
                     "videos_count": videos,
                     "has_media": (images > 0 or videos > 0)
                 }
+                enhanced_result["structured_data_info"] = structured_data_info
+                enhanced_result["has_structured_data"] = has_structured_data
                 enhanced_result["position"] = idx + 1
                 
                 enhanced_results.append(enhanced_result)
@@ -248,7 +259,7 @@ IMPORTANT: Pour l'analyse concurrentielle (section II.1), assure-toi d'inclure l
 - Titre: disponible dans le champ "page_title"
 - Volumétrie: disponible dans le champ "word_count" (nombre de mots)
 - Médias: indique le nombre d'images et de vidéos (champs "media.images" et "media.videos")
-- Données structurées: indique si présentes (champ "structured_data")
+- Données structurées: indique si présentes (champ "structured_data_info")
 
 Pour chaque résultat, identifie également au moins une force et une faiblesse.
 """
@@ -264,6 +275,7 @@ Pour chaque résultat, identifie également au moins une force et une faiblesse.
                 domain = result.get("domain", "")
                 word_count = result.get("word_count", "N/A")
                 media_info = result.get("media_summary", {})
+                structured_data = result.get("structured_data_info", "Non disponible")
                 
                 message_content += f"\n{position}. {title}"
                 message_content += f"\n   URL: {url}"
@@ -271,6 +283,7 @@ Pour chaque résultat, identifie également au moins une force et une faiblesse.
                 message_content += f"\n   Domaine: {domain}"
                 message_content += f"\n   Volumétrie: {word_count} mots"
                 message_content += f"\n   Médias: Images: {media_info.get('images_count', 0)}, Vidéos: {media_info.get('videos_count', 0)}"
+                message_content += f"\n   Données structurées: {structured_data}"
                 message_content += "\n"
         
         # Ajouter les recherches associées
