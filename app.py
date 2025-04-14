@@ -189,7 +189,6 @@ def generate_brief_with_assistant(keyword, serp_data):
     """
     Génère un brief SEO en utilisant l'assistant OpenAI existant.
     Compatible avec openai v1.x et gère les états requires_action.
-    Améliore le formatage des données pour faciliter leur utilisation.
     """
     try:
         # Importer OpenAI ici pour éviter les problèmes de configuration globale
@@ -203,68 +202,17 @@ def generate_brief_with_assistant(keyword, serp_data):
         thread = client.beta.threads.create()
         thread_id = thread.id
         
-        # 2. Améliorer le formatage des données SERP pour une meilleure utilisation
-        formatted_results = []
+        # 2. Préparer un message avec les instructions et les données SERP
+        message_content = f"Génère un brief SEO pour le mot-clé '{keyword}' en suivant le canevas fourni. Voici les données SERP:"
         
-        if "organic_results" in serp_data and isinstance(serp_data["organic_results"], list):
-            for idx, result in enumerate(serp_data["organic_results"][:10]):
-                media_info = result.get("media", {})
-                images_count = media_info.get("images", 0)
-                videos_count = media_info.get("videos", 0)
-                
-                # Déterminer le type de médias présent
-                media_types = []
-                if images_count > 0:
-                    media_types.append(f"Images ({images_count})")
-                if videos_count > 0:
-                    media_types.append(f"Vidéos ({videos_count})")
-                if not media_types:
-                    media_types = ["Aucun média"]
-                
-                # Extraire le domaine de l'URL
-                domain = result.get("domain", "")
-                if not domain and "url" in result:
-                    try:
-                        parsed_url = urlparse(result["url"])
-                        domain = parsed_url.netloc
-                    except:
-                        pass
-                
-                # Créer une entrée formatée pour ce résultat
-                formatted_results.append({
-                    "position": idx + 1,
-                    "domain": domain or "N/A",
-                    "title": result.get("page_title", "N/A"),
-                    "word_count": result.get("word_count", "N/A"),
-                    "media": ", ".join(media_types),
-                    "structured_data": "Présent" if result.get("structured_data") else "Non disponible",
-                    "meta_description": result.get("meta_description", "N/A"),
-                    "url": result.get("url", "N/A")
-                })
-        
-        # 3. Préparer un message avec les instructions et les données SERP
-        message_content = f"""Génère un brief SEO pour le mot-clé '{keyword}' en suivant le canevas fourni. 
-
-INSTRUCTIONS SPÉCIFIQUES POUR L'ANALYSE CONCURRENTIELLE:
-- Tu DOIS inclure un tableau complet avec EXACTEMENT 10 résultats, même si certains semblent moins pertinents
-- Pour CHAQUE résultat, tu DOIS inclure toutes les colonnes suivantes:
-  * Domaine: le nom de domaine (champ "domain")
-  * Titre: le titre de la page (champ "title")
-  * Volumétrie: le nombre de mots du contenu (champ "word_count")
-  * Médias: types et nombre de médias présents (champ "media")
-  * Données structurées: présence ou non (champ "structured_data")
-  * Forces: identifie au moins une force pour chaque résultat
-  * Faiblesses: identifie au moins une faiblesse pour chaque résultat
-
-- IMPORTANT: Si une information est "N/A", indique "Non disponible" mais NE LAISSE AUCUNE CASE VIDE
-- Présente ce tableau en format HTML bien structuré pour une meilleure mise en forme
-
-Voici les données SERP:"""
-
-        # Ajouter les résultats organiques avec format amélioré
-        if formatted_results:
-            message_content += "\n\n## Top 10 résultats Google (données structurées):"
-            message_content += "\n```json\n" + json.dumps(formatted_results, indent=2, ensure_ascii=False) + "\n```\n"
+        # Ajouter les résultats organiques
+        if "organic_results" in serp_data and serp_data["organic_results"]:
+            message_content += "\n\n## Top résultats Google:"
+            for i, result in enumerate(serp_data["organic_results"][:10]):
+                title = result.get("page_title", "")
+                url = result.get("url", "")
+                description = result.get("meta_description", "")
+                message_content += f"\n{i+1}. {title}\n   URL: {url}\n   Description: {description}"
         
         # Ajouter les recherches associées
         if "related_searches" in serp_data and serp_data["related_searches"]:
@@ -278,20 +226,20 @@ Voici les données SERP:"""
             for question in serp_data["related_questions"]:
                 message_content += f"\n- {question.get('question', '')}"
         
-        # 4. Ajouter le message au thread
+        # 3. Ajouter le message au thread
         client.beta.threads.messages.create(
             thread_id=thread_id,
             role="user",
             content=message_content
         )
         
-        # 5. Exécuter l'assistant sur le thread
+        # 4. Exécuter l'assistant sur le thread
         run = client.beta.threads.runs.create(
             thread_id=thread_id,
             assistant_id=ASSISTANT_ID
         )
         
-        # 6. Attendre que l'assistant termine son travail
+        # 5. Attendre que l'assistant termine son travail
         run_status = run.status
         run_id = run.id
         
@@ -374,7 +322,7 @@ Voici les données SERP:"""
             if attempt >= max_attempts:
                 raise Exception(f"Reached maximum attempts. Last status: {run_status}")
         
-        # 7. Récupérer la réponse de l'assistant
+        # 6. Récupérer la réponse de l'assistant
         messages = client.beta.threads.messages.list(
             thread_id=thread_id
         )
