@@ -131,8 +131,8 @@ def enregistrer_brief():
 
 def get_serp_data_for_keyword(keyword):
     """
-    Fonction interne simplifiée pour récupérer les données SERP pour un mot-clé,
-    en utilisant directement la structure fournie par l'API SERP.
+    Fonction interne pour récupérer les données SERP pour un mot-clé,
+    avec un formatage amélioré pour l'analyse concurrentielle.
     """
     try:
         SERP_API_URL = os.getenv("SERP_API_URL", "https://serpscrap-production.up.railway.app/scrape")
@@ -149,9 +149,44 @@ def get_serp_data_for_keyword(keyword):
             "related_questions": []
         }
         
-        # Extraire les résultats organiques
+        # Extraire et améliorer les résultats organiques
         if "results" in serp_data and isinstance(serp_data["results"], list):
-            formatted_data["organic_results"] = serp_data["results"]
+            enhanced_results = []
+            
+            for idx, result in enumerate(serp_data["results"][:10]):  # Limiter aux 10 premiers
+                # Extraire le domaine si nécessaire
+                domain = result.get("domain", "")
+                if not domain and "url" in result:
+                    try:
+                        parsed_url = urlparse(result["url"])
+                        domain = parsed_url.netloc
+                    except:
+                        pass
+                
+                # S'assurer que word_count est bien présent
+                word_count = result.get("word_count", "N/A")
+                
+                # Améliorer les informations sur les médias
+                media_info = result.get("media", {})
+                images = media_info.get("images", 0)
+                videos = media_info.get("videos", 0)
+                
+                # Créer un résultat amélioré
+                enhanced_result = dict(result)  # Copier toutes les données originales
+                
+                # Ajouter ou améliorer certains champs
+                enhanced_result["domain"] = domain or "N/A"
+                enhanced_result["word_count"] = word_count
+                enhanced_result["media_summary"] = {
+                    "images_count": images,
+                    "videos_count": videos,
+                    "has_media": (images > 0 or videos > 0)
+                }
+                enhanced_result["position"] = idx + 1
+                
+                enhanced_results.append(enhanced_result)
+            
+            formatted_data["organic_results"] = enhanced_results
         
         # Extraire les recherches associées
         if "associated_searches" in serp_data and isinstance(serp_data["associated_searches"], list):
@@ -176,7 +211,7 @@ def get_serp_results():
         return jsonify({"error": "Query parameter is required"}), 400
 
     try:
-        # Utiliser la fonction simplifiée
+        # Utiliser la fonction améliorée
         formatted_data = get_serp_data_for_keyword(query)
         print(f"SERP data for query '{query}': {formatted_data}")
         
@@ -205,14 +240,38 @@ def generate_brief_with_assistant(keyword, serp_data):
         # 2. Préparer un message avec les instructions et les données SERP
         message_content = f"Génère un brief SEO pour le mot-clé '{keyword}' en suivant le canevas fourni. Voici les données SERP:"
         
+        # Ajouter des instructions pour l'analyse concurrentielle
+        message_content += """
+
+IMPORTANT: Pour l'analyse concurrentielle (section II.1), assure-toi d'inclure les informations suivantes pour chaque résultat:
+- Domaine: disponible dans le champ "domain"
+- Titre: disponible dans le champ "page_title"
+- Volumétrie: disponible dans le champ "word_count" (nombre de mots)
+- Médias: indique le nombre d'images et de vidéos (champs "media.images" et "media.videos")
+- Données structurées: indique si présentes (champ "structured_data")
+
+Pour chaque résultat, identifie également au moins une force et une faiblesse.
+"""
+        
         # Ajouter les résultats organiques
         if "organic_results" in serp_data and serp_data["organic_results"]:
             message_content += "\n\n## Top résultats Google:"
-            for i, result in enumerate(serp_data["organic_results"][:10]):
+            for result in serp_data["organic_results"][:10]:
+                position = result.get("position", "N/A")
                 title = result.get("page_title", "")
                 url = result.get("url", "")
                 description = result.get("meta_description", "")
-                message_content += f"\n{i+1}. {title}\n   URL: {url}\n   Description: {description}"
+                domain = result.get("domain", "")
+                word_count = result.get("word_count", "N/A")
+                media_info = result.get("media_summary", {})
+                
+                message_content += f"\n{position}. {title}"
+                message_content += f"\n   URL: {url}"
+                message_content += f"\n   Description: {description}"
+                message_content += f"\n   Domaine: {domain}"
+                message_content += f"\n   Volumétrie: {word_count} mots"
+                message_content += f"\n   Médias: Images: {media_info.get('images_count', 0)}, Vidéos: {media_info.get('videos_count', 0)}"
+                message_content += "\n"
         
         # Ajouter les recherches associées
         if "related_searches" in serp_data and serp_data["related_searches"]:
