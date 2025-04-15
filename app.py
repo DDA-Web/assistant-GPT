@@ -150,18 +150,7 @@ def get_keyword_data_from_api(mot_cle):
         data = response.json()
         print(f"Keyword data received from Ngrok for '{mot_cle}': {data}")
         
-        # Vérifier la présence des champs attendus
-        if "mot_cle_principal" in data:
-            return data
-        else:
-            # Si la structure ne correspond pas à l'attendu, construire une réponse par défaut
-            return {
-                "mot_cle_principal": mot_cle,
-                "volume_principal": data.get("volume_principal"),
-                "concurrence": data.get("concurrence"),
-                "saisonnalite": data.get("saisonnalite", {}),
-                "suggestions": data.get("suggestions", [])
-            }
+        return data
     except Exception as e:
         print(f"Error getting keyword data for '{mot_cle}': {str(e)}")
         return {
