@@ -28,6 +28,7 @@ def index():
             "/recupererBrief",
             "/enregistrerBrief",
             "/getSERPResults",
+            "/getKeywordData",
             "/process",
             "/statut"
         ]
@@ -128,6 +129,68 @@ def enregistrer_brief():
         "status": "Brief enregistré avec succès",
         "brief_id": brief_id
     }), 200
+
+def get_keyword_data_from_api(mot_cle):
+    """
+    Fonction interne pour récupérer les données sémantiques du Google Keyword Planner via l'API Ngrok.
+    """
+    try:
+        # URL de votre API Ngrok (à configurer dans les variables d'environnement)
+        KEYWORD_API_URL = os.getenv("KEYWORD_API_URL", "https://keywordplanner.ngrok.app/semantique")
+        
+        # Effectuer la requête POST avec le mot-clé
+        response = requests.post(
+            KEYWORD_API_URL,
+            json={"mot_cle": mot_cle},
+            timeout=30
+        )
+        response.raise_for_status()
+        
+        # Récupérer les données JSON
+        data = response.json()
+        print(f"Keyword data received from Ngrok for '{mot_cle}': {data}")
+        
+        # Vérifier la présence des champs attendus
+        if "mot_cle_principal" in data:
+            return data
+        else:
+            # Si la structure ne correspond pas à l'attendu, construire une réponse par défaut
+            return {
+                "mot_cle_principal": mot_cle,
+                "volume_principal": data.get("volume_principal"),
+                "concurrence": data.get("concurrence"),
+                "saisonnalite": data.get("saisonnalite", {}),
+                "suggestions": data.get("suggestions", [])
+            }
+    except Exception as e:
+        print(f"Error getting keyword data for '{mot_cle}': {str(e)}")
+        return {
+            "mot_cle_principal": mot_cle,
+            "volume_principal": None,
+            "concurrence": None,
+            "saisonnalite": {},
+            "suggestions": [],
+            "error": str(e)
+        }
+
+@app.route('/getKeywordData', methods=['GET'])
+def get_keyword_data():
+    """
+    Endpoint appelé par l'Assistant GPT pour obtenir des données sémantiques.
+    """
+    mot_cle = request.args.get('mot_cle')
+    if not mot_cle:
+        return jsonify({"error": "Parameter 'mot_cle' is required"}), 400
+
+    try:
+        # Utiliser la fonction pour récupérer les données
+        keyword_data = get_keyword_data_from_api(mot_cle)
+        print(f"Returning keyword data for '{mot_cle}' to Assistant GPT")
+        
+        return jsonify(keyword_data), 200
+    except Exception as e:
+        print(f"Unexpected error in getKeywordData: {str(e)}")
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 def get_serp_data_for_keyword(keyword):
     """
@@ -355,6 +418,10 @@ Pour chaque résultat, identifie également au moins une force et une faiblesse.
                                 query = function_args.get("query", keyword)
                                 serp_result = get_serp_data_for_keyword(query)
                                 result = serp_result
+                            elif function_name == "getKeywordData":
+                                mot_cle = function_args.get("mot_cle", keyword)
+                                keyword_result = get_keyword_data_from_api(mot_cle)
+                                result = keyword_result
                             elif function_name == "recupererBrief":
                                 # Retourner un résultat vide, car l'assistant a déjà les données nécessaires
                                 result = {"keyword": keyword}
