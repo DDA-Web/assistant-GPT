@@ -127,7 +127,8 @@ def enregistrer_brief():
     
     return jsonify({
         "status": "Brief enregistré avec succès",
-        "brief_id": brief_id
+        "brief_id": brief_id,
+        "brief": brief_content  # Retourner le brief pour assurer que le contenu est disponible
     }), 200
 
 def get_keyword_data_from_api(mot_cle):
@@ -289,8 +290,7 @@ def generate_brief_with_assistant(keyword, serp_data):
     Compatible avec openai v1.x et gère les états requires_action.
     """
     try:
-        # Importer OpenAI ici pour éviter les problèmes de configuration globale
-        import openai
+        # Utiliser uniquement l'import moderne et supprimer l'import legacy
         from openai import OpenAI
         
         # Créer le client sans proxy
@@ -301,7 +301,11 @@ def generate_brief_with_assistant(keyword, serp_data):
         thread_id = thread.id
         
         # 2. Préparer un message avec les instructions et les données SERP
-        message_content = f"Génère un brief SEO pour le mot-clé '{keyword}' en suivant le canevas fourni. Voici les données SERP:"
+        message_content = f"""Génère un brief SEO pour le mot-clé '{keyword}' en suivant le canevas fourni. 
+
+IMPORTANT: TOUJOURS retourner le BRIEF COMPLET et NE JAMAIS retourner uniquement un message de confirmation. Le brief généré doit être le contenu principal de ta réponse.
+
+Voici les données SERP:"""
         
         # Ajouter des instructions pour l'analyse concurrentielle
         message_content += """
@@ -367,7 +371,7 @@ Pour chaque résultat, identifie également au moins une force et une faiblesse.
         run_status = run.status
         run_id = run.id
         
-        max_attempts = 10
+        max_attempts = 30  # Augmenté de 10 à 30
         attempt = 0
         
         while attempt < max_attempts:
@@ -415,7 +419,20 @@ Pour chaque résultat, identifie également au moins une force et une faiblesse.
                                 # Retourner un résultat vide, car l'assistant a déjà les données nécessaires
                                 result = {"keyword": keyword}
                             elif function_name == "enregistrerBrief":
-                                # Ne rien faire ici, car l'enregistrement se fera après la génération complète
+                                # Stocker temporairement le brief pour y accéder plus tard si nécessaire
+                                brief_data = function_args.get("brief", "")
+                                if brief_data and "keyword" in function_args:
+                                    # Enregistrer temporairement le brief, mais on le récupérera plus tard 
+                                    # dans la réponse de l'assistant pour avoir le brief complet
+                                    temp_brief_id = f"temp_{int(time.time())}"
+                                    completed_briefs[temp_brief_id] = {
+                                        "keyword": function_args["keyword"],
+                                        "brief": brief_data,
+                                        "status": "completed",
+                                        "completed_at": time.time(),
+                                        "is_temp": True  # Marquer comme temporaire
+                                    }
+                                # Répondre avec succès dans tous les cas
                                 result = {"status": "success"}
                             
                             # Convertir le résultat en JSON
@@ -460,16 +477,31 @@ Pour chaque résultat, identifie également au moins une force et une faiblesse.
         
         for message in messages.data:
             if message.role == "assistant":
+                message_parts = []
                 for content_part in message.content:
                     if content_part.type == "text":
-                        brief_content = content_part.text.value
-                        break
-                if brief_content:
+                        message_parts.append(content_part.text.value)
+                if message_parts:
+                    brief_content = "\n".join(message_parts)
                     break
         
         if not brief_content:
             raise Exception("No assistant response found")
             
+        # Vérifier si le brief_content est juste un message de confirmation
+        if "a été généré et enregistré avec succès" in brief_content and len(brief_content.strip().split("\n")) < 5:
+            # Chercher un brief temporaire pour ce mot-clé
+            for brief_id, brief_data in list(completed_briefs.items()):
+                if brief_data.get("keyword") == keyword and brief_data.get("is_temp") and len(brief_data.get("brief", "")) > 100:
+                    brief_content = brief_data["brief"]
+                    # Supprimer le brief temporaire
+                    del completed_briefs[brief_id]
+                    break
+            
+            # Si toujours pas de brief complet, lever une exception
+            if "a été généré et enregistré avec succès" in brief_content and len(brief_content.strip().split("\n")) < 5:
+                raise Exception("Assistant returned only a confirmation message without full brief content")
+        
         return brief_content
         
     except Exception as e:
@@ -510,7 +542,10 @@ def process_queue():
             "status": "completed",
             "completed_at": time.time()
         }
-        del pending_briefs[brief_id]
+        
+        # Supprimer de la file d'attente
+        if brief_id in pending_briefs:
+            del pending_briefs[brief_id]
         
         return jsonify({
             "status": "Brief processed successfully",
@@ -534,7 +569,7 @@ def statut():
         "pending_briefs": len(pending_briefs),
         "completed_briefs": len(completed_briefs),
         "pending_list": [{"brief_id": k, "keyword": v["keyword"]} for k, v in pending_briefs.items()],
-        "completed_list": [{"brief_id": k, "keyword": v["keyword"]} for k, v in completed_briefs.items()]
+        "completed_list": [{"brief_id": k, "keyword": v["keyword"]} for k, v in completed_briefs.items() if not v.get("is_temp", False)]
     }), 200
 
 if __name__ == '__main__':
