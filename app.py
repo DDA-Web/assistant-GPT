@@ -188,8 +188,8 @@ def get_serp_data_for_keyword(keyword):
     avec un formatage amélioré pour l'analyse concurrentielle.
     """
     try:
-        SERP_API_URL = os.getenv("SERP_API_URL", "https://keywordplanner.ngrok.app/scrape")
-        response = requests.get(SERP_API_URL, params={"query": keyword}, timeout=30)
+        SERP_API_URL = os.getenv("SERP_API_URL","https://keywordplanner.ngrok.app/scrape")
+        response = requests.get(SERP_API_URL, params={"query": keyword}, timeout=45)
         response.raise_for_status()
         
         serp_data = response.json()
@@ -265,7 +265,7 @@ def get_serp_data_for_keyword(keyword):
         print(f"Error getting SERP data for keyword '{keyword}': {str(e)}")
         return {"query": keyword, "error": str(e)}
 
-@app.route('/getSERPResults', methods=['POST'])
+@app.route('/getSERPResults', methods=['GET'])
 def get_serp_results():
     """
     Endpoint appelé par l'Assistant GPT pour obtenir les données SERP.
