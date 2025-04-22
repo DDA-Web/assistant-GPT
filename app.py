@@ -203,11 +203,11 @@ def get_serp_data_for_keyword(keyword):
             "related_questions": []
         }
         
-        # Extraire et améliorer les résultats organiques
-        if "results" in serp_data and isinstance(serp_data["results"], list):
+        # CHANGEMENT ICI : Le nouveau format utilise "top_10" au lieu de "results"
+        if "top_10" in serp_data and isinstance(serp_data["top_10"], list):
             enhanced_results = []
             
-            for idx, result in enumerate(serp_data["results"][:10]):  # Limiter aux 10 premiers
+            for idx, result in enumerate(serp_data["top_10"]):  # Limiter aux 10 premiers
                 # Extraire le domaine si nécessaire
                 domain = result.get("domain", "")
                 if not domain and "url" in result:
@@ -253,13 +253,13 @@ def get_serp_data_for_keyword(keyword):
             
             formatted_data["organic_results"] = enhanced_results
         
-        # Extraire les recherches associées
+        # CHANGEMENT ICI : Le nouveau format utilise "associated_searches" directement
         if "associated_searches" in serp_data and isinstance(serp_data["associated_searches"], list):
             formatted_data["related_searches"] = serp_data["associated_searches"]
         
-        # Extraire les questions PAA (People Also Ask)
-        if "paa_questions" in serp_data and isinstance(serp_data["paa_questions"], list):
-            formatted_data["related_questions"] = [{"question": q} for q in serp_data["paa_questions"]]
+        # CHANGEMENT ICI : Le nouveau format utilise "paa" au lieu de "paa_questions"
+        if "paa" in serp_data and isinstance(serp_data["paa"], list):
+            formatted_data["related_questions"] = [{"question": q} for q in serp_data["paa"]]
         
         return formatted_data
     except Exception as e:
