@@ -188,15 +188,13 @@ def get_serp_data_for_keyword(keyword):
     avec un formatage amélioré pour l'analyse concurrentielle.
     """
     try:
-        # UPDATED: Using Ngrok endpoint instead of Railway
         SERP_API_URL = os.getenv("SERP_API_URL", "https://keywordplanner.ngrok.app/scrape")
-        response = requests.post(SERP_API_URL, json={"query": keyword}, timeout=30)
+        response = requests.get(SERP_API_URL, params={"query": keyword}, timeout=30)
         response.raise_for_status()
         
         serp_data = response.json()
-        print(f"Raw SERP data received: {serp_data}")  # Debug log
         
-        # Formater les données pour l'Assistant - CORRECTION MAJEURE ICI
+        # Formater les données pour l'Assistant
         formatted_data = {
             "query": keyword,
             "organic_results": [],
@@ -205,10 +203,10 @@ def get_serp_data_for_keyword(keyword):
         }
         
         # Extraire et améliorer les résultats organiques
-        if "top_10" in serp_data and isinstance(serp_data["top_10"], list):
+        if "results" in serp_data and isinstance(serp_data["results"], list):
             enhanced_results = []
             
-            for idx, result in enumerate(serp_data["top_10"]):
+            for idx, result in enumerate(serp_data["results"][:10]):  # Limiter aux 10 premiers
                 # Extraire le domaine si nécessaire
                 domain = result.get("domain", "")
                 if not domain and "url" in result:
@@ -254,22 +252,20 @@ def get_serp_data_for_keyword(keyword):
             
             formatted_data["organic_results"] = enhanced_results
         
-        # CORRECTION: Mapper correctement les recherches associées
+        # Extraire les recherches associées
         if "associated_searches" in serp_data and isinstance(serp_data["associated_searches"], list):
             formatted_data["related_searches"] = serp_data["associated_searches"]
         
-        # CORRECTION: Mapper correctement les questions PAA
-        if "paa" in serp_data and isinstance(serp_data["paa"], list):
-            formatted_data["related_questions"] = [{"question": q} for q in serp_data["paa"]]
-        
-        print(f"Formatted SERP data: {formatted_data}")  # Debug log
+        # Extraire les questions PAA (People Also Ask)
+        if "paa_questions" in serp_data and isinstance(serp_data["paa_questions"], list):
+            formatted_data["related_questions"] = [{"question": q} for q in serp_data["paa_questions"]]
         
         return formatted_data
     except Exception as e:
         print(f"Error getting SERP data for keyword '{keyword}': {str(e)}")
         return {"query": keyword, "error": str(e)}
 
-@app.route('/getSERPResults', methods=['GET'])
+@app.route('/getSERPResults', methods=['POST'])
 def get_serp_results():
     """
     Endpoint appelé par l'Assistant GPT pour obtenir les données SERP.
@@ -281,11 +277,8 @@ def get_serp_results():
     try:
         # Utiliser la fonction améliorée
         formatted_data = get_serp_data_for_keyword(query)
+        print(f"SERP data for query '{query}': {formatted_data}")
         
-        # Directement retourner les données même si certaines parties sont vides
-        # Car maintenant le script gère correctement les PAA et recherches associées
-        
-        print(f"Returning SERP data for query '{query}': {formatted_data}")
         return jsonify(formatted_data), 200
     except Exception as e:
         print(f"Unexpected error in getSERPResults: {str(e)}")
