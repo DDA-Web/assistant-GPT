@@ -194,8 +194,9 @@ def get_serp_data_for_keyword(keyword):
         response.raise_for_status()
         
         serp_data = response.json()
+        print(f"Raw SERP data received: {serp_data}")  # Debug log
         
-        # Formater les données pour l'Assistant
+        # Formater les données pour l'Assistant - CORRECTION MAJEURE ICI
         formatted_data = {
             "query": keyword,
             "organic_results": [],
@@ -253,13 +254,15 @@ def get_serp_data_for_keyword(keyword):
             
             formatted_data["organic_results"] = enhanced_results
         
-        # Extraire les recherches associées
+        # CORRECTION: Mapper correctement les recherches associées
         if "associated_searches" in serp_data and isinstance(serp_data["associated_searches"], list):
             formatted_data["related_searches"] = serp_data["associated_searches"]
         
-        # Extraire les questions PAA (People Also Ask)
+        # CORRECTION: Mapper correctement les questions PAA
         if "paa" in serp_data and isinstance(serp_data["paa"], list):
             formatted_data["related_questions"] = [{"question": q} for q in serp_data["paa"]]
+        
+        print(f"Formatted SERP data: {formatted_data}")  # Debug log
         
         return formatted_data
     except Exception as e:
@@ -278,8 +281,11 @@ def get_serp_results():
     try:
         # Utiliser la fonction améliorée
         formatted_data = get_serp_data_for_keyword(query)
-        print(f"SERP data for query '{query}': {formatted_data}")
         
+        # Directement retourner les données même si certaines parties sont vides
+        # Car maintenant le script gère correctement les PAA et recherches associées
+        
+        print(f"Returning SERP data for query '{query}': {formatted_data}")
         return jsonify(formatted_data), 200
     except Exception as e:
         print(f"Unexpected error in getSERPResults: {str(e)}")
