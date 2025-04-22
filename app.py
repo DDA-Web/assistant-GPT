@@ -188,8 +188,9 @@ def get_serp_data_for_keyword(keyword):
     avec un formatage amélioré pour l'analyse concurrentielle.
     """
     try:
-        SERP_API_URL = os.getenv("SERP_API_URL", "https://serpscrap-production.up.railway.app/scrape")
-        response = requests.get(SERP_API_URL, params={"query": keyword}, timeout=30)
+        # UPDATED: Using Ngrok endpoint instead of Railway
+        SERP_API_URL = os.getenv("SERP_API_URL", "https://keywordplanner.ngrok.app/scrape")
+        response = requests.post(SERP_API_URL, json={"query": keyword}, timeout=30)
         response.raise_for_status()
         
         serp_data = response.json()
@@ -203,10 +204,10 @@ def get_serp_data_for_keyword(keyword):
         }
         
         # Extraire et améliorer les résultats organiques
-        if "results" in serp_data and isinstance(serp_data["results"], list):
+        if "top_10" in serp_data and isinstance(serp_data["top_10"], list):
             enhanced_results = []
             
-            for idx, result in enumerate(serp_data["results"][:10]):  # Limiter aux 10 premiers
+            for idx, result in enumerate(serp_data["top_10"]):
                 # Extraire le domaine si nécessaire
                 domain = result.get("domain", "")
                 if not domain and "url" in result:
@@ -257,8 +258,8 @@ def get_serp_data_for_keyword(keyword):
             formatted_data["related_searches"] = serp_data["associated_searches"]
         
         # Extraire les questions PAA (People Also Ask)
-        if "paa_questions" in serp_data and isinstance(serp_data["paa_questions"], list):
-            formatted_data["related_questions"] = [{"question": q} for q in serp_data["paa_questions"]]
+        if "paa" in serp_data and isinstance(serp_data["paa"], list):
+            formatted_data["related_questions"] = [{"question": q} for q in serp_data["paa"]]
         
         return formatted_data
     except Exception as e:
