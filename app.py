@@ -143,7 +143,7 @@ def get_keyword_data_from_api(mot_cle):
         response = requests.post(
             KEYWORD_API_URL,
             json={"mot_cle": mot_cle},
-            timeout=30
+            timeout=60
         )
         response.raise_for_status()
         
@@ -190,7 +190,7 @@ def get_serp_data_for_keyword(keyword):
     try:
         # CHANGEMENT ICI : Utiliser Ngrok avec POST au lieu de Railway avec GET
         SERP_API_URL = os.getenv("SERP_API_URL", "https://keywordplanner.ngrok.app/scrape")
-        response = requests.post(SERP_API_URL, json={"query": keyword}, timeout=30)
+        response = requests.post(SERP_API_URL, json={"query": keyword}, timeout=60)
         response.raise_for_status()
         
         serp_data = response.json()
