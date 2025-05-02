@@ -153,9 +153,10 @@ def test_envoyer_brief_redacteur(brief_id):
             print("Brief successfully sent to Redacteur SEO")
             data = response.json()
             print(f"Content ID: {data.get('content_id')}")
+            return data
         else:
             print("Error sending brief to Redacteur SEO")
-        return response.json() if response.status_code in [200, 202] else None
+        return None
     except Exception as e:
         print(f"Error calling envoyerBriefRedacteur: {str(e)}")
         return None
@@ -177,9 +178,10 @@ def test_generer_contenu(content_id=None, brief_id=None):
             data = response.json()
             print(f"Content generated successfully for brief_id: {data.get('brief_id')}")
             print(f"Content length: {len(data.get('content', ''))}")
+            return data
         else:
             print("Error generating content")
-        return response.json() if response.status_code == 200 else None
+        return None
     except Exception as e:
         print(f"Error calling genererContenu: {str(e)}")
         return None
@@ -203,9 +205,10 @@ def test_recuperer_contenu(content_id=None, brief_id=None):
             print(f"Content status: {data.get('status')}")
             if "content" in data:
                 print(f"Content length: {len(data.get('content'))}")
+            return data
         else:
             print("Error retrieving content or content not available yet")
-        return response.json() if response.status_code == 200 else None
+        return None
     except Exception as e:
         print(f"Error calling recupererContenu: {str(e)}")
         return None

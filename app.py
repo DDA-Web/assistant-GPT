@@ -612,11 +612,12 @@ def envoyer_brief_redacteur():
         "created_at": time.time()
     }
     
-    return jsonify({
-        "status": "Brief envoyé pour rédaction",
-        "content_id": content_id,
-        "brief_id": brief_id
-    }), 202
+    # Format simplifié pour Make - les clés au premier niveau plutôt que dans un objet data
+    return jsonify(
+        content_id=content_id,
+        brief_id=brief_id,
+        status="Brief envoyé pour rédaction"
+    ), 202
 
 @app.route('/recupererContenu', methods=['GET'])
 def recuperer_contenu():
@@ -629,15 +630,17 @@ def recuperer_contenu():
     # Si l'appel spécifie un content_id précis
     if content_id:
         if content_id in completed_content:
-            return jsonify(completed_content[content_id]), 200
+            # Extraire les données au niveau racine pour Make
+            response_data = completed_content[content_id].copy()
+            return jsonify(response_data), 200
         elif content_id in pending_content:
-            return jsonify({
-                "status": "pending",
-                "content_id": content_id,
-                "brief_id": pending_content[content_id]["brief_id"]
-            }), 202
+            return jsonify(
+                status="pending",
+                content_id=content_id,
+                brief_id=pending_content[content_id]["brief_id"]
+            ), 202
         else:
-            return jsonify({"error": "Content not found"}), 404
+            return jsonify(error="Content not found"), 404
     
     # Si l'appel spécifie un brief_id précis
     elif brief_id:
@@ -645,15 +648,16 @@ def recuperer_contenu():
         if matching:
             return jsonify(matching[0]), 200
         else:
-            return jsonify({"status": "No completed content found for this brief"}), 404
+            return jsonify(status="No completed content found for this brief"), 404
     
     # Sans paramètres, retourner le premier contenu complété
     else:
         if completed_content:
             content_id = next(iter(completed_content))
-            return jsonify(completed_content[content_id]), 200
+            response_data = completed_content[content_id].copy()
+            return jsonify(response_data), 200
         else:
-            return jsonify({"status": "No completed content available"}), 204
+            return jsonify(status="No completed content available"), 204
 
 def generate_content_with_assistant(brief_id):
     """
@@ -692,14 +696,14 @@ IMPORTANT:
 - Assure-toi que le contenu soit informatif, engageant et de haute qualité
 """
         
-        # 3. Ajouter le message au thread
+# 3. Ajouter le message au thread
         client.beta.threads.messages.create(
             thread_id=thread_id,
             role="user",
             content=message_content
         )
         
-# 4. Exécuter l'assistant sur le thread
+        # 4. Exécuter l'assistant sur le thread
         run = client.beta.threads.runs.create(
             thread_id=thread_id,
             assistant_id=REDACTEUR_ASSISTANT_ID
@@ -794,9 +798,9 @@ def generer_contenu():
                 content_id = next(iter(pending_content))
                 brief_id = pending_content[content_id]["brief_id"]
             else:
-                return jsonify({"status": "No pending content to process"}), 200
+                return jsonify(status="No pending content to process"), 200
         elif content_id and content_id not in pending_content:
-            return jsonify({"error": f"Content with ID {content_id} not found"}), 404
+            return jsonify(error=f"Content with ID {content_id} not found"), 404
     
     try:
         # Générer le contenu avec l'Assistant Rédacteur
@@ -817,19 +821,20 @@ def generer_contenu():
         if content_id in pending_content:
             del pending_content[content_id]
         
-        return jsonify({
-            "status": "Content generated successfully",
-            "content_id": content_id,
-            "brief_id": brief_id,
-            "content": content_text
-        }), 200
+        # Format simplifié pour Make
+        return jsonify(
+            status="Content generated successfully",
+            content_id=content_id,
+            brief_id=brief_id,
+            content=content_text
+        ), 200
     except Exception as e:
         print(f"Error processing content: {str(e)}")
-        return jsonify({
-            "error": f"Failed to process content: {str(e)}",
-            "content_id": content_id,
-            "brief_id": brief_id
-        }), 500
+        return jsonify(
+            error=f"Failed to process content: {str(e)}",
+            content_id=content_id,
+            brief_id=brief_id
+        ), 500
 
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 8000))
