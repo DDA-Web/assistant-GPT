@@ -685,9 +685,7 @@ def generate_content_with_assistant(brief_id):
         
         # 2. Préparer un message avec le brief
         message_content = f"""Rédige un contenu SEO pour le mot-clé '{keyword}' en suivant strictement ce brief:
-
 {brief_content}
-
 IMPORTANT:
 - Respecte EXACTEMENT le plan fourni dans le brief
 - Rédige un contenu complet et optimisé pour le SEO
@@ -696,7 +694,7 @@ IMPORTANT:
 - Assure-toi que le contenu soit informatif, engageant et de haute qualité
 """
         
-# 3. Ajouter le message au thread
+        # 3. Ajouter le message au thread
         client.beta.threads.messages.create(
             thread_id=thread_id,
             role="user",
@@ -729,10 +727,64 @@ IMPORTANT:
             
             if run_status == "completed":
                 break
+            elif run_status == "requires_action":
+                # AJOUT ICI: Gérer l'action requise
+                try:
+                    required_actions = run.required_action
+                    if required_actions and required_actions.type == "submit_tool_outputs":
+                        tool_calls = required_actions.submit_tool_outputs.tool_calls
+                        tool_outputs = []
+                        
+                        print(f"Content Assistant requires action with {len(tool_calls)} tool calls")
+                        
+                        for tool_call in tool_calls:
+                            tool_call_id = tool_call.id
+                            function_name = tool_call.function.name
+                            function_args = json.loads(tool_call.function.arguments)
+                            
+                            print(f"Tool call: {function_name} with args: {function_args}")
+                            
+                            # Traiter l'appel de fonction
+                            result = {}
+                            
+                            if function_name == "getBrief":
+                                # Fournir le brief au Rédacteur
+                                brief_requested_id = function_args.get("brief_id", brief_id)
+                                if brief_requested_id in completed_briefs:
+                                    result = {
+                                        "brief": completed_briefs[brief_requested_id]["brief"],
+                                        "keyword": completed_briefs[brief_requested_id]["keyword"]
+                                    }
+                                else:
+                                    result = {"error": "Brief not found"}
+                            
+                            # Convertir le résultat en JSON
+                            output = json.dumps(result)
+                            
+                            tool_outputs.append({
+                                "tool_call_id": tool_call_id,
+                                "output": output
+                            })
+                        
+                        # Soumettre les réponses
+                        client.beta.threads.runs.submit_tool_outputs(
+                            thread_id=thread_id,
+                            run_id=run_id,
+                            tool_outputs=tool_outputs
+                        )
+                        
+                        print(f"Submitted {len(tool_outputs)} tool outputs")
+                        
+                    else:
+                        print("Required action of unknown type")
+                        raise Exception(f"Unknown required action type: {required_actions.type}")
+                except Exception as e:
+                    print(f"Error handling requires_action: {str(e)}")
+                    raise e
             elif run_status in ["failed", "cancelled", "expired"]:
                 raise Exception(f"Assistant run failed with status: {run_status}")
             
-            if run_status not in ["completed", "in_progress", "queued"]:
+            if run_status not in ["completed", "requires_action", "in_progress", "queued"]:
                 raise Exception(f"Unexpected status: {run_status}")
             
             if attempt >= max_attempts:
