@@ -12,12 +12,17 @@ load_dotenv()
 # Configuration OpenAI
 API_KEY = os.getenv("OPENAI_API_KEY")
 ASSISTANT_ID = "asst_4qIjf00E1XIYVvKV9GKAUzJp"  # ID de votre Assistant GPT
+REDACTEUR_ASSISTANT_ID = "asst_LlhjAq1OLjwswAf6sLgq4UF9"  # ID de l'Assistant Rédacteur SEO
 
 app = Flask(__name__)
 
 # Files d'attente pour les briefs
 pending_briefs = {}     # Format : {brief_id: {"keyword": keyword, "status": "pending", "created_at": timestamp}}
 completed_briefs = {}   # Format : {brief_id: {"keyword": keyword, "brief": brief, "status": "completed", "completed_at": timestamp}}
+
+# Files d'attente pour les contenus
+pending_content = {}     # Format : {content_id: {"brief_id": brief_id, "status": "pending", "created_at": timestamp}}
+completed_content = {}   # Format : {content_id: {"brief_id": brief_id, "content": content, "status": "completed", "completed_at": timestamp}}
 
 @app.route('/', methods=['GET'])
 def index():
@@ -30,7 +35,10 @@ def index():
             "/getSERPResults",
             "/getKeywordData",
             "/process",
-            "/statut"
+            "/statut",
+            "/envoyerBriefRedacteur",
+            "/recupererContenu",
+            "/genererContenu"
         ]
     }), 200
 
@@ -569,9 +577,259 @@ def statut():
         "status": "online",
         "pending_briefs": len(pending_briefs),
         "completed_briefs": len(completed_briefs),
-        "pending_list": [{"brief_id": k, "keyword": v["keyword"]} for k, v in pending_briefs.items()],
-        "completed_list": [{"brief_id": k, "keyword": v["keyword"]} for k, v in completed_briefs.items() if not v.get("is_temp", False)]
+        "pending_content": len(pending_content),
+        "completed_content": len(completed_content),
+        "pending_briefs_list": [{"brief_id": k, "keyword": v["keyword"]} for k, v in pending_briefs.items()],
+        "completed_briefs_list": [{"brief_id": k, "keyword": v["keyword"]} for k, v in completed_briefs.items() if not v.get("is_temp", False)],
+        "pending_content_list": [{"content_id": k, "brief_id": v["brief_id"]} for k, v in pending_content.items()],
+        "completed_content_list": [{"content_id": k, "brief_id": v["brief_id"], "keyword": completed_briefs[v["brief_id"]]["keyword"]} for k, v in completed_content.items()]
     }), 200
+
+# Nouvelles routes pour le workflow SEO 2.0
+
+@app.route('/envoyerBriefRedacteur', methods=['POST'])
+def envoyer_brief_redacteur():
+    """
+    Endpoint pour envoyer un brief à l'Assistant Rédacteur SEO.
+    """
+    data = request.json
+    if not data or not data.get('brief_id'):
+        return jsonify({"error": "Brief ID is required"}), 400
+
+    brief_id = data.get('brief_id')
+    
+    # Vérifier si le brief existe
+    if brief_id not in completed_briefs:
+        return jsonify({"error": f"Brief with ID {brief_id} not found"}), 404
+    
+    # Créer un ID pour le contenu
+    content_id = f"content_{int(time.time())}"
+    
+    # Ajouter à la file d'attente des contenus en cours
+    pending_content[content_id] = {
+        "brief_id": brief_id,
+        "status": "pending",
+        "created_at": time.time()
+    }
+    
+    return jsonify({
+        "status": "Brief envoyé pour rédaction",
+        "content_id": content_id,
+        "brief_id": brief_id
+    }), 202
+
+@app.route('/recupererContenu', methods=['GET'])
+def recuperer_contenu():
+    """
+    Endpoint pour récupérer un contenu rédigé.
+    """
+    content_id = request.args.get('content_id')
+    brief_id = request.args.get('brief_id')
+    
+    # Si l'appel spécifie un content_id précis
+    if content_id:
+        if content_id in completed_content:
+            return jsonify(completed_content[content_id]), 200
+        elif content_id in pending_content:
+            return jsonify({
+                "status": "pending",
+                "content_id": content_id,
+                "brief_id": pending_content[content_id]["brief_id"]
+            }), 202
+        else:
+            return jsonify({"error": "Content not found"}), 404
+    
+    # Si l'appel spécifie un brief_id précis
+    elif brief_id:
+        matching = [c for c_id, c in completed_content.items() if c["brief_id"] == brief_id]
+        if matching:
+            return jsonify(matching[0]), 200
+        else:
+            return jsonify({"status": "No completed content found for this brief"}), 404
+    
+    # Sans paramètres, retourner le premier contenu complété
+    else:
+        if completed_content:
+            content_id = next(iter(completed_content))
+            return jsonify(completed_content[content_id]), 200
+        else:
+            return jsonify({"status": "No completed content available"}), 204
+
+def generate_content_with_assistant(brief_id):
+    """
+    Génère un contenu SEO en utilisant l'Assistant Rédacteur SEO.
+    """
+    try:
+        # Vérifier si le brief existe
+        if brief_id not in completed_briefs:
+            raise Exception(f"Brief with ID {brief_id} not found")
+        
+        # Récupérer le brief
+        brief_data = completed_briefs[brief_id]
+        keyword = brief_data["keyword"]
+        brief_content = brief_data["brief"]
+        
+        # Importer OpenAI
+        from openai import OpenAI
+        
+        # Créer le client OpenAI
+        client = OpenAI(api_key=API_KEY)
+        
+        # 1. Créer une conversation (thread)
+        thread = client.beta.threads.create()
+        thread_id = thread.id
+        
+        # 2. Préparer un message avec le brief
+        message_content = f"""Rédige un contenu SEO pour le mot-clé '{keyword}' en suivant strictement ce brief:
+
+{brief_content}
+
+IMPORTANT:
+- Respecte EXACTEMENT le plan fourni dans le brief
+- Rédige un contenu complet et optimisé pour le SEO
+- Inclus une introduction et une conclusion pertinentes
+- Utilise des sous-titres Hn appropriés
+- Assure-toi que le contenu soit informatif, engageant et de haute qualité
+"""
+        
+        # 3. Ajouter le message au thread
+        client.beta.threads.messages.create(
+            thread_id=thread_id,
+            role="user",
+            content=message_content
+        )
+        
+# 4. Exécuter l'assistant sur le thread
+        run = client.beta.threads.runs.create(
+            thread_id=thread_id,
+            assistant_id=REDACTEUR_ASSISTANT_ID
+        )
+        
+        # 5. Attendre que l'assistant termine son travail
+        run_status = run.status
+        run_id = run.id
+        
+        max_attempts = 30  # Plus d'attempts car la rédaction peut prendre plus de temps
+        attempt = 0
+        
+        while attempt < max_attempts:
+            attempt += 1
+            time.sleep(5)  # Attendre plus longtemps pour ce type de tâche
+            
+            run = client.beta.threads.runs.retrieve(
+                thread_id=thread_id,
+                run_id=run_id
+            )
+            run_status = run.status
+            print(f"Content generation run status: {run_status}")
+            
+            if run_status == "completed":
+                break
+            elif run_status in ["failed", "cancelled", "expired"]:
+                raise Exception(f"Assistant run failed with status: {run_status}")
+            
+            if run_status not in ["completed", "in_progress", "queued"]:
+                raise Exception(f"Unexpected status: {run_status}")
+            
+            if attempt >= max_attempts:
+                raise Exception(f"Reached maximum attempts. Last status: {run_status}")
+        
+        # 6. Récupérer la réponse de l'assistant
+        messages = client.beta.threads.messages.list(
+            thread_id=thread_id
+        )
+        
+        # Récupérer la dernière réponse de l'assistant
+        content_text = None
+        
+        for message in messages.data:
+            if message.role == "assistant":
+                message_parts = []
+                for content_part in message.content:
+                    if content_part.type == "text":
+                        message_parts.append(content_part.text.value)
+                if message_parts:
+                    content_text = "\n".join(message_parts)
+                    break
+        
+        if not content_text:
+            raise Exception("No assistant response found")
+            
+        return content_text
+        
+    except Exception as e:
+        print(f"Error generating content with Redacteur assistant: {str(e)}")
+        raise e
+
+@app.route('/genererContenu', methods=['GET'])
+def generer_contenu():
+    """
+    Traite la génération de contenu SEO à partir d'un brief.
+    """
+    content_id = request.args.get('content_id')
+    brief_id = request.args.get('brief_id')
+    
+    # Si un content_id spécifique est fourni
+    if content_id and content_id in pending_content:
+        brief_id = pending_content[content_id]["brief_id"]
+    # Si un brief_id spécifique est fourni sans content_id
+    elif brief_id and not content_id:
+        # Vérifier si le contenu pour ce brief est déjà en attente
+        matching_content_ids = [cid for cid, c in pending_content.items() if c["brief_id"] == brief_id]
+        if matching_content_ids:
+            content_id = matching_content_ids[0]
+        else:
+            # Créer un nouveau content_id pour ce brief
+            content_id = f"content_{int(time.time())}"
+            pending_content[content_id] = {
+                "brief_id": brief_id,
+                "status": "pending",
+                "created_at": time.time()
+            }
+    # Sans paramètres suffisants
+    else:
+        if not brief_id and not content_id:
+            # Prendre le premier contenu en attente
+            if pending_content:
+                content_id = next(iter(pending_content))
+                brief_id = pending_content[content_id]["brief_id"]
+            else:
+                return jsonify({"status": "No pending content to process"}), 200
+        elif content_id and content_id not in pending_content:
+            return jsonify({"error": f"Content with ID {content_id} not found"}), 404
+    
+    try:
+        # Générer le contenu avec l'Assistant Rédacteur
+        print(f"Generating content for brief ID: {brief_id}")
+        content_text = generate_content_with_assistant(brief_id)
+        
+        # Enregistrer le contenu généré
+        print(f"Saving content for brief ID: {brief_id}")
+        completed_content[content_id] = {
+            "brief_id": brief_id,
+            "content": content_text,
+            "status": "completed",
+            "completed_at": time.time(),
+            "keyword": completed_briefs[brief_id]["keyword"]
+        }
+        
+        # Supprimer de la file d'attente
+        if content_id in pending_content:
+            del pending_content[content_id]
+        
+        return jsonify({
+            "status": "Content generated successfully",
+            "content_id": content_id,
+            "brief_id": brief_id,
+            "content": content_text
+        }), 200
+    except Exception as e:
+        print(f"Error processing content: {str(e)}")
+        return jsonify({
+            "error": f"Failed to process content: {str(e)}",
+            "content_id": content_id,
+            "brief_id": brief_id
+        }), 500
 
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 8000))

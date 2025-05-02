@@ -137,6 +137,125 @@ Article de blog informatif
     if result:
         print("Workflow test completed successfully")
 
+# Nouvelles fonctions pour le workflow SEO 2.0
+
+def test_envoyer_brief_redacteur(brief_id):
+    """
+    Fonction de test pour simuler l'envoi d'un brief à l'Assistant Rédacteur SEO.
+    """
+    try:
+        payload = {
+            "brief_id": brief_id
+        }
+        response = requests.post(f"{API_BASE_URL}/envoyerBriefRedacteur", json=payload)
+        print(f"Response from envoyerBriefRedacteur for brief_id '{brief_id}':", response.status_code)
+        if response.status_code == 202:
+            print("Brief successfully sent to Redacteur SEO")
+            data = response.json()
+            print(f"Content ID: {data.get('content_id')}")
+        else:
+            print("Error sending brief to Redacteur SEO")
+        return response.json() if response.status_code in [200, 202] else None
+    except Exception as e:
+        print(f"Error calling envoyerBriefRedacteur: {str(e)}")
+        return None
+
+def test_generer_contenu(content_id=None, brief_id=None):
+    """
+    Fonction de test pour simuler l'appel à genererContenu.
+    """
+    try:
+        params = {}
+        if content_id:
+            params["content_id"] = content_id
+        if brief_id:
+            params["brief_id"] = brief_id
+            
+        response = requests.get(f"{API_BASE_URL}/genererContenu", params=params)
+        print(f"Response from genererContenu:", response.status_code)
+        if response.status_code == 200:
+            data = response.json()
+            print(f"Content generated successfully for brief_id: {data.get('brief_id')}")
+            print(f"Content length: {len(data.get('content', ''))}")
+        else:
+            print("Error generating content")
+        return response.json() if response.status_code == 200 else None
+    except Exception as e:
+        print(f"Error calling genererContenu: {str(e)}")
+        return None
+
+def test_recuperer_contenu(content_id=None, brief_id=None):
+    """
+    Fonction de test pour récupérer un contenu rédigé.
+    """
+    try:
+        params = {}
+        if content_id:
+            params["content_id"] = content_id
+        if brief_id:
+            params["brief_id"] = brief_id
+            
+        response = requests.get(f"{API_BASE_URL}/recupererContenu", params=params)
+        print(f"Response from recupererContenu:", response.status_code)
+        if response.status_code == 200:
+            data = response.json()
+            print(f"Content retrieved successfully for brief_id: {data.get('brief_id')}")
+            print(f"Content status: {data.get('status')}")
+            if "content" in data:
+                print(f"Content length: {len(data.get('content'))}")
+        else:
+            print("Error retrieving content or content not available yet")
+        return response.json() if response.status_code == 200 else None
+    except Exception as e:
+        print(f"Error calling recupererContenu: {str(e)}")
+        return None
+
+def test_content_workflow(brief_id=None):
+    """
+    Fonction pour tester l'ensemble du workflow de génération de contenu.
+    """
+    # 1. Si aucun brief_id n'est fourni, récupérer un brief complété
+    if not brief_id:
+        # Vérifier les briefs complétés
+        response = requests.get(f"{API_BASE_URL}/statut")
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("completed_briefs", 0) > 0 and "completed_briefs_list" in data:
+                brief_id = data["completed_briefs_list"][0]["brief_id"]
+                print(f"Using first completed brief: {brief_id}")
+            else:
+                print("No completed briefs available")
+                return
+        else:
+            print("Error checking API status")
+            return
+    
+    # 2. Envoyer le brief au Rédacteur SEO
+    print(f"Sending brief {brief_id} to Redacteur SEO...")
+    result = test_envoyer_brief_redacteur(brief_id)
+    if not result:
+        print("Failed to send brief to Redacteur SEO")
+        return
+    
+    content_id = result.get("content_id")
+    
+    # 3. Générer le contenu
+    print(f"Generating content for content_id {content_id}...")
+    content_result = test_generer_contenu(content_id=content_id)
+    if not content_result:
+        print("Failed to generate content")
+        return
+    
+    # 4. Récupérer le contenu généré
+    print(f"Retrieving content for content_id {content_id}...")
+    content = test_recuperer_contenu(content_id=content_id)
+    if content and "content" in content:
+        print("Content workflow test completed successfully")
+        return content
+    else:
+        print("Content not available yet or error occurred")
+        return None
+
 if __name__ == "__main__":
     # Pour tester l'ajout d'un nouveau brief
     # new_keyword = "seo tools"
@@ -146,5 +265,8 @@ if __name__ == "__main__":
     # Pour tester la récupération des données sémantiques
     # test_get_keyword_data("chaussures running")
     
-    # Pour tester le workflow complet
-    test_workflow()
+    # Pour tester le workflow complet de brief
+    # test_workflow()
+    
+    # Pour tester le workflow complet de contenu
+    # test_content_workflow()
