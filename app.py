@@ -683,15 +683,9 @@ def generate_content_with_assistant(brief_id):
         thread = client.beta.threads.create()
         thread_id = thread.id
         
-        # 2. Préparer un message avec le brief
-        message_content = f"""Rédige un contenu SEO pour le mot-clé '{keyword}' en suivant strictement ce brief:
+        # 2. Préparer un message avec le brief (sans instructions redondantes)
+        message_content = f"""Rédige un contenu SEO pour le mot-clé '{keyword}' en suivant ce brief:
 {brief_content}
-IMPORTANT:
-- Respecte EXACTEMENT le plan fourni dans le brief
-- Rédige un contenu complet et optimisé pour le SEO
-- Inclus une introduction et une conclusion pertinentes
-- Utilise des sous-titres Hn appropriés
-- Assure-toi que le contenu soit informatif, engageant et de haute qualité
 """
         
         # 3. Ajouter le message au thread
@@ -728,7 +722,6 @@ IMPORTANT:
             if run_status == "completed":
                 break
             elif run_status == "requires_action":
-                # AJOUT ICI: Gérer l'action requise
                 try:
                     required_actions = run.required_action
                     if required_actions and required_actions.type == "submit_tool_outputs":
@@ -748,15 +741,22 @@ IMPORTANT:
                             result = {}
                             
                             if function_name == "getBrief":
-                                # Fournir le brief au Rédacteur
+                                # Récupérer le contenu du brief depuis la clé "brief"
                                 brief_requested_id = function_args.get("brief_id", brief_id)
                                 if brief_requested_id in completed_briefs:
+                                    brief_content_to_send = completed_briefs[brief_requested_id]["brief"]
+                                    keyword_value = completed_briefs[brief_requested_id]["keyword"]
+                                    
+                                    # Créer l'objet résultat avec le brief complet
                                     result = {
-                                        "brief": completed_briefs[brief_requested_id]["brief"],
-                                        "keyword": completed_briefs[brief_requested_id]["keyword"]
+                                        "brief": brief_content_to_send,
+                                        "keyword": keyword_value
                                     }
+                                    
+                                    print(f"Envoi du brief: {len(brief_content_to_send)} caractères pour '{keyword_value}'")
                                 else:
-                                    result = {"error": "Brief not found"}
+                                    result = {"error": f"Brief non trouvé avec l'ID: {brief_requested_id}"}
+                                    print(f"Brief ID {brief_requested_id} non trouvé")
                             
                             # Convertir le résultat en JSON
                             output = json.dumps(result)
