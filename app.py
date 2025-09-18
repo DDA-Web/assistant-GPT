@@ -359,7 +359,7 @@ Pour chaque résultat, identifie également au moins une force et une faiblesse.
                 message_content += f"\n- {search}"
         
         # Ajouter les questions fréquentes
-        if "related_questions" in serp_data and serp_data["related_questions"]]:
+        if "related_questions" in serp_data and serp_data["related_questions"]:
             message_content += "\n\n## Questions fréquentes:"
             for question in serp_data["related_questions"]:
                 message_content += f"\n- {question.get('question', '')}"
