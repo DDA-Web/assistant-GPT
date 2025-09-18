@@ -38,7 +38,8 @@ def index():
             "/statut",
             "/envoyerBriefRedacteur",
             "/recupererContenu",
-            "/genererContenu"
+            "/genererContenu",
+            "/reset"
         ]
     }), 200
 
@@ -358,7 +359,7 @@ Pour chaque résultat, identifie également au moins une force et une faiblesse.
                 message_content += f"\n- {search}"
         
         # Ajouter les questions fréquentes
-        if "related_questions" in serp_data and serp_data["related_questions"]:
+        if "related_questions" in serp_data and serp_data["related_questions"]]:
             message_content += "\n\n## Questions fréquentes:"
             for question in serp_data["related_questions"]:
                 message_content += f"\n- {question.get('question', '')}"
@@ -376,17 +377,10 @@ Pour chaque résultat, identifie également au moins une force et une faiblesse.
             assistant_id=ASSISTANT_ID
         )
         
-        # 5. Attendre que l'assistant termine son travail
-        run_status = run.status
+        # 5. Attendre que l'assistant termine son travail (boucle sans limite)
         run_id = run.id
-        
-        max_attempts = 30  # Augmenté de 10 à 30
-        attempt = 0
-        
-        while attempt < max_attempts:
-            attempt += 1
-            time.sleep(3)  # Attendre pour éviter trop de requêtes
-            
+        while True:
+            time.sleep(3)  # éviter trop de requêtes
             run = client.beta.threads.runs.retrieve(
                 thread_id=thread_id,
                 run_id=run_id
@@ -398,83 +392,65 @@ Pour chaque résultat, identifie également au moins une force et une faiblesse.
                 break
             elif run_status == "requires_action":
                 # Gérer l'action requise - approuver automatiquement les fonctions
-                try:
-                    required_actions = run.required_action
-                    if required_actions and required_actions.type == "submit_tool_outputs":
-                        tool_calls = required_actions.submit_tool_outputs.tool_calls
-                        tool_outputs = []
+                required_actions = run.required_action
+                if required_actions and required_actions.type == "submit_tool_outputs":
+                    tool_calls = required_actions.submit_tool_outputs.tool_calls
+                    tool_outputs = []
+                    
+                    print(f"Assistant requires action with {len(tool_calls)} tool calls")
+                    
+                    for tool_call in tool_calls:
+                        tool_call_id = tool_call.id
+                        function_name = tool_call.function.name
+                        function_args = json.loads(tool_call.function.arguments)
                         
-                        print(f"Assistant requires action with {len(tool_calls)} tool calls")
+                        print(f"Tool call: {function_name} with args: {function_args}")
                         
-                        for tool_call in tool_calls:
-                            tool_call_id = tool_call.id
-                            function_name = tool_call.function.name
-                            function_args = json.loads(tool_call.function.arguments)
-                            
-                            print(f"Tool call: {function_name} with args: {function_args}")
-                            
-                            # Traiter l'appel de fonction et obtenir un résultat
-                            result = {}
-                            
-                            if function_name == "getSERPResults":
-                                query = function_args.get("query", keyword)
-                                serp_result = get_serp_data_for_keyword(query)
-                                result = serp_result
-                            elif function_name == "getKeywordData":
-                                mot_cle = function_args.get("mot_cle", keyword)
-                                keyword_result = get_keyword_data_from_api(mot_cle)
-                                result = keyword_result
-                            elif function_name == "recupererBrief":
-                                # Retourner un résultat vide, car l'assistant a déjà les données nécessaires
-                                result = {"keyword": keyword}
-                            elif function_name == "enregistrerBrief":
-                                # Stocker temporairement le brief pour y accéder plus tard si nécessaire
-                                brief_data = function_args.get("brief", "")
-                                if brief_data and "keyword" in function_args:
-                                    # Enregistrer temporairement le brief, mais on le récupérera plus tard 
-                                    # dans la réponse de l'assistant pour avoir le brief complet
-                                    temp_brief_id = f"temp_{int(time.time())}"
-                                    completed_briefs[temp_brief_id] = {
-                                        "keyword": function_args["keyword"],
-                                        "brief": brief_data,
-                                        "status": "completed",
-                                        "completed_at": time.time(),
-                                        "is_temp": True  # Marquer comme temporaire
-                                    }
-                                # Répondre avec succès dans tous les cas
-                                result = {"status": "success"}
-                            
-                            # Convertir le résultat en JSON
-                            output = json.dumps(result)
-                            
-                            tool_outputs.append({
-                                "tool_call_id": tool_call_id,
-                                "output": output
-                            })
+                        # Traiter l'appel de fonction et obtenir un résultat
+                        result = {}
                         
-                        # Soumettre les réponses aux appels de fonction
-                        client.beta.threads.runs.submit_tool_outputs(
-                            thread_id=thread_id,
-                            run_id=run_id,
-                            tool_outputs=tool_outputs
-                        )
+                        if function_name == "getSERPResults":
+                            query = function_args.get("query", keyword)
+                            serp_result = get_serp_data_for_keyword(query)
+                            result = serp_result
+                        elif function_name == "getKeywordData":
+                            mot_cle = function_args.get("mot_cle", keyword)
+                            keyword_result = get_keyword_data_from_api(mot_cle)
+                            result = keyword_result
+                        elif function_name == "recupererBrief":
+                            result = {"keyword": keyword}
+                        elif function_name == "enregistrerBrief":
+                            brief_data = function_args.get("brief", "")
+                            if brief_data and "keyword" in function_args:
+                                temp_brief_id = f"temp_{int(time.time())}"
+                                completed_briefs[temp_brief_id] = {
+                                    "keyword": function_args["keyword"],
+                                    "brief": brief_data,
+                                    "status": "completed",
+                                    "completed_at": time.time(),
+                                    "is_temp": True
+                                }
+                            result = {"status": "success"}
                         
-                        print(f"Submitted {len(tool_outputs)} tool outputs")
-                        
-                    else:
-                        print("Required action of unknown type")
-                        raise Exception(f"Unknown required action type: {required_actions.type}")
-                except Exception as e:
-                    print(f"Error handling requires_action: {str(e)}")
-                    raise e
+                        output = json.dumps(result)
+                        tool_outputs.append({
+                            "tool_call_id": tool_call_id,
+                            "output": output
+                        })
+                    
+                    client.beta.threads.runs.submit_tool_outputs(
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        tool_outputs=tool_outputs
+                    )
+                    print(f"Submitted {len(tool_outputs)} tool outputs")
+                else:
+                    raise Exception(f"Unknown required action type: {required_actions.type if required_actions else 'None'}")
             elif run_status in ["failed", "cancelled", "expired"]:
                 raise Exception(f"Assistant run failed with status: {run_status}")
             
             if run_status not in ["completed", "requires_action", "in_progress", "queued"]:
                 raise Exception(f"Unexpected status: {run_status}")
-            
-            if attempt >= max_attempts:
-                raise Exception(f"Reached maximum attempts. Last status: {run_status}")
         
         # 6. Récupérer la réponse de l'assistant
         messages = client.beta.threads.messages.list(
@@ -497,17 +473,14 @@ Pour chaque résultat, identifie également au moins une force et une faiblesse.
         if not brief_content:
             raise Exception("No assistant response found")
             
-        # Vérifier si le brief_content est juste un message de confirmation
+        # Si l'assistant a écrit seulement une confirmation, récupérer le temp si dispo
         if "a été généré et enregistré avec succès" in brief_content and len(brief_content.strip().split("\n")) < 5:
-            # Chercher un brief temporaire pour ce mot-clé
             for brief_id, brief_data in list(completed_briefs.items()):
                 if brief_data.get("keyword") == keyword and brief_data.get("is_temp") and len(brief_data.get("brief", "")) > 100:
                     brief_content = brief_data["brief"]
-                    # Supprimer le brief temporaire
                     del completed_briefs[brief_id]
                     break
             
-            # Si toujours pas de brief complet, lever une exception
             if "a été généré et enregistré avec succès" in brief_content and len(brief_content.strip().split("\n")) < 5:
                 raise Exception("Assistant returned only a confirmation message without full brief content")
         
@@ -653,8 +626,8 @@ def recuperer_contenu():
     # Sans paramètres, retourner le premier contenu complété
     else:
         if completed_content:
-            content_id = next(iter(completed_content))
-            response_data = completed_content[content_id].copy()
+            cid = next(iter(completed_content))
+            response_data = completed_content[cid].copy()
             return jsonify(response_data), 200
         else:
             return jsonify(status="No completed content available"), 204
@@ -703,15 +676,9 @@ Utilise ce brief pour rédiger un contenu SEO optimisé. N'utilise pas la foncti
             assistant_id=REDACTEUR_ASSISTANT_ID
         )
         
-        # 5. Attendre que l'assistant termine son travail
-        run_status = run.status
+        # 5. Attendre que l'assistant termine son travail (boucle sans limite)
         run_id = run.id
-        
-        max_attempts = 30
-        attempt = 0
-        
-        while attempt < max_attempts:
-            attempt += 1
+        while True:
             time.sleep(5)
             
             run = client.beta.threads.runs.retrieve(
@@ -724,65 +691,52 @@ Utilise ce brief pour rédiger un contenu SEO optimisé. N'utilise pas la foncti
             if run_status == "completed":
                 break
             elif run_status == "requires_action":
-                # Gérer l'action requise même si on espère qu'elle ne se produira plus
-                try:
-                    required_actions = run.required_action
-                    if required_actions and required_actions.type == "submit_tool_outputs":
-                        tool_calls = required_actions.submit_tool_outputs.tool_calls
-                        tool_outputs = []
+                required_actions = run.required_action
+                if required_actions and required_actions.type == "submit_tool_outputs":
+                    tool_calls = required_actions.submit_tool_outputs.tool_calls
+                    tool_outputs = []
+                    
+                    print(f"Content Assistant requires action with {len(tool_calls)} tool calls despite having the brief")
+                    
+                    for tool_call in tool_calls:
+                        tool_call_id = tool_call.id
+                        function_name = tool_call.function.name
+                        function_args = json.loads(tool_call.function.arguments)
                         
-                        print(f"Content Assistant requires action with {len(tool_calls)} tool calls despite having the brief")
+                        print(f"Tool call: {function_name} with args: {function_args}")
                         
-                        for tool_call in tool_calls:
-                            tool_call_id = tool_call.id
-                            function_name = tool_call.function.name
-                            function_args = json.loads(tool_call.function.arguments)
-                            
-                            print(f"Tool call: {function_name} with args: {function_args}")
-                            
-                            # Traiter l'appel de fonction
-                            result = {}
-                            
-                            if function_name == "getBrief":
-                                # Lui renvoyer le même brief qu'on a déjà fourni
-                                print("Assistant demande getBrief malgré le brief déjà fourni")
-                                result = {
-                                    "brief": brief_content,
-                                    "keyword": keyword,
-                                    "note": "Ce brief a déjà été fourni au début de la conversation"
-                                }
-                            
-                            # Convertir le résultat en JSON
-                            output = json.dumps(result)
-                            
-                            tool_outputs.append({
-                                "tool_call_id": tool_call_id,
-                                "output": output
-                            })
+                        result = {}
                         
-                        # Soumettre les réponses
-                        client.beta.threads.runs.submit_tool_outputs(
-                            thread_id=thread_id,
-                            run_id=run_id,
-                            tool_outputs=tool_outputs
-                        )
+                        if function_name == "getBrief":
+                            # Lui renvoyer le même brief qu'on a déjà fourni
+                            print("Assistant demande getBrief malgré le brief déjà fourni")
+                            result = {
+                                "brief": brief_content,
+                                "keyword": keyword,
+                                "note": "Ce brief a déjà été fourni au début de la conversation"
+                            }
                         
-                        print(f"Submitted {len(tool_outputs)} tool outputs")
+                        output = json.dumps(result)
                         
-                    else:
-                        print("Required action of unknown type")
-                        raise Exception(f"Unknown required action type: {required_actions.type}")
-                except Exception as e:
-                    print(f"Error handling requires_action: {str(e)}")
-                    raise e
+                        tool_outputs.append({
+                            "tool_call_id": tool_call_id,
+                            "output": output
+                        })
+                    
+                    client.beta.threads.runs.submit_tool_outputs(
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        tool_outputs=tool_outputs
+                    )
+                    
+                    print(f"Submitted {len(tool_outputs)} tool outputs")
+                else:
+                    raise Exception(f"Unknown required action type: {required_actions.type if required_actions else 'None'}")
             elif run_status in ["failed", "cancelled", "expired"]:
                 raise Exception(f"Assistant run failed with status: {run_status}")
             
             if run_status not in ["completed", "requires_action", "in_progress", "queued"]:
                 raise Exception(f"Unexpected status: {run_status}")
-            
-            if attempt >= max_attempts:
-                raise Exception(f"Reached maximum attempts. Last status: {run_status}")
         
         # 6. Récupérer la réponse de l'assistant
         messages = client.beta.threads.messages.list(
@@ -881,6 +835,28 @@ def generer_contenu():
             content_id=content_id,
             brief_id=brief_id
         ), 500
+
+@app.route('/reset', methods=['POST'])
+def reset_statut():
+    """
+    Efface tout l'historique (pending/completed) des briefs et contenus.
+    """
+    cleared = {
+        "pending_briefs_cleared": len(pending_briefs),
+        "completed_briefs_cleared": len([b for b in completed_briefs.values() if not b.get("is_temp", False)]),
+        "pending_content_cleared": len(pending_content),
+        "completed_content_cleared": len(completed_content),
+    }
+
+    pending_briefs.clear()
+    completed_briefs.clear()
+    pending_content.clear()
+    completed_content.clear()
+
+    return jsonify({
+        "status": "history_cleared",
+        **cleared
+    }), 200
 
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 8000))
